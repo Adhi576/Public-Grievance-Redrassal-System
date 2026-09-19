@@ -38,4 +38,58 @@ const auditMiddleware = (action, entityType) => async (req, _res, next) => {
   next();
 };
 
-module.exports = { log, auditMiddleware };
+/**
+ * Retrieves audit logs with filtering and pagination.
+ * Strips sensitive data like passwords/tokens from details.
+ */
+const getLogs = async (filters, page = 1, limit = 20) => {
+  const { Op } = require('sequelize');
+  const { User } = require('../models');
+  
+  const where = {};
+  
+  if (filters.user_id) {
+    where.user_id = parseInt(filters.user_id, 10);
+  }
+  
+  if (filters.action) {
+    where.action = filters.action;
+  }
+  
+  if (filters.from || filters.to) {
+    where.timestamp = {};
+    if (filters.from) where.timestamp[Op.gte] = new Date(filters.from);
+    if (filters.to)   where.timestamp[Op.lte] = new Date(filters.to);
+  }
+
+  const offset = (page - 1) * limit;
+
+  const { count, rows } = await AuditLog.findAndCountAll({
+    where,
+    order: [['timestamp', 'DESC']],
+    limit,
+    offset,
+    include: [{ model: User, as: 'user', attributes: ['name', 'email', 'role'] }],
+  });
+
+  // Strip sensitive info from details if present (defensive)
+  const safeRows = rows.map(row => {
+    const plain = row.get({ plain: true });
+    if (plain.details) {
+      delete plain.details.password;
+      delete plain.details.password_hash;
+      delete plain.details.token;
+    }
+    return plain;
+  });
+
+  return {
+    total: count,
+    page,
+    limit,
+    total_pages: Math.ceil(count / limit),
+    logs: safeRows,
+  };
+};
+
+module.exports = { log, auditMiddleware, getLogs };

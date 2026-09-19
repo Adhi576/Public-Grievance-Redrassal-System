@@ -44,6 +44,7 @@ beforeAll(async () => {
 
   // Disable FK checks so we can delete in any order
   await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+  await db.AuditLog.destroy({ where: {}, truncate: false });
   await db.Report.destroy({ where: {}, truncate: false });
   await db.Feedback.destroy({ where: {}, truncate: false });
   await db.ResolutionVerification.destroy({ where: {}, truncate: false });
@@ -1089,6 +1090,114 @@ describe('Reports and Analytics', () => {
     // avg_resolution_hours might be null if closed_at and assigned_at diff is exactly 0 or null,
     // but the field must be defined.
     expect(data.avg_resolution_hours).toBeDefined();
+  });
+});
+
+// =============================================================================
+// AUDIT LOGS
+// =============================================================================
+describe('Audit Logs', () => {
+  test('Admin can access audit logs', async () => {
+    const res = await request(app)
+      .get('/api/audit-logs')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.logs).toBeInstanceOf(Array);
+    expect(res.body.data.total).toBeGreaterThanOrEqual(1); // Should have plenty from earlier tests
+  });
+
+  test('Unauthorized users cannot access audit logs (citizen, officer, dept head)', async () => {
+    const roles = [citizenToken, officerToken, deptHeadToken];
+    for (const token of roles) {
+      const res = await request(app)
+        .get('/api/audit-logs')
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.statusCode).toBe(403);
+    }
+  });
+
+  test('Action filtering works', async () => {
+    const res = await request(app)
+      .get('/api/audit-logs?action=GENERATE_REPORT')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.logs.every(l => l.action === 'GENERATE_REPORT')).toBe(true);
+    expect(res.body.data.logs.length).toBeGreaterThanOrEqual(1); // the report tests just ran
+  });
+
+  test('User filtering works', async () => {
+    const res = await request(app)
+      .get(`/api/audit-logs?user_id=${adminUser.user_id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.logs.every(l => l.user_id === adminUser.user_id)).toBe(true);
+  });
+
+  test('Date filtering works', async () => {
+    const futureDate = new Date();
+    futureDate.setFullYear(futureDate.getFullYear() + 1);
+    const to = futureDate.toISOString();
+    const from = new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(); // tomorrow
+
+    const res = await request(app)
+      .get(`/api/audit-logs?from=${from}&to=${to}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.total).toBe(0);
+  });
+
+  test('Pagination works', async () => {
+    // page 1, limit 2
+    const res1 = await request(app)
+      .get('/api/audit-logs?page=1&limit=2')
+      .set('Authorization', `Bearer ${adminToken}`);
+    
+    expect(res1.statusCode).toBe(200);
+    expect(res1.body.data.limit).toBe(2);
+    expect(res1.body.data.logs.length).toBeLessThanOrEqual(2);
+    
+    // page 2
+    const res2 = await request(app)
+      .get('/api/audit-logs?page=2&limit=2')
+      .set('Authorization', `Bearer ${adminToken}`);
+    
+    expect(res2.statusCode).toBe(200);
+    // ensure page 1 and page 2 are different logs if we have enough total logs
+    if (res1.body.data.logs.length > 0 && res2.body.data.logs.length > 0) {
+      expect(res1.body.data.logs[0].log_id).not.toBe(res2.body.data.logs[0].log_id);
+    }
+  });
+
+  test('Sensitive data (password/token) is not exposed in details', async () => {
+    // Write a mock log with sensitive data
+    await db.AuditLog.create({
+      user_id: adminUser.user_id,
+      action: 'MOCK_SENSITIVE',
+      details: {
+        safe_key: 'hello',
+        password: 'SuperSecretPassword',
+        password_hash: 'hash123',
+        token: 'eyJh...'
+      }
+    });
+
+    const res = await request(app)
+      .get('/api/audit-logs?action=MOCK_SENSITIVE')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    const log = res.body.data.logs[0];
+    expect(log).toBeDefined();
+    expect(log.details).toBeDefined();
+    expect(log.details.safe_key).toBe('hello');
+    expect(log.details.password).toBeUndefined();
+    expect(log.details.password_hash).toBeUndefined();
+    expect(log.details.token).toBeUndefined();
   });
 });
 

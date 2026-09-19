@@ -37,7 +37,7 @@ app.use('/api/grievances',   require('./routes/grievances'));
 // app.use('/api/notifications',require('./routes/notifications'));
 app.use('/api/feedback',     require('./routes/feedback'));
 app.use('/api/reports',      require('./routes/reports'));
-// app.use('/api/audit-logs',   require('./routes/auditLogs'));
+app.use('/api/audit-logs',   require('./routes/auditLogs'));
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
