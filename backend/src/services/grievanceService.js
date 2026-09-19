@@ -12,6 +12,8 @@ const {
   Attachment,
   Comment,
   Notification,
+  Resolution,
+  ResolutionVerification,
 } = require('../models');
 const { generateGRN } = require('../utils/grnGenerator');
 
@@ -24,6 +26,7 @@ const VALID_TRANSITIONS = {
   UNDER_REVIEW:                 ['ASSIGNED'],     // handled by assignOfficer
   ASSIGNED:                     ['IN_PROGRESS'],
   IN_PROGRESS:                  ['RESOLVED'],     // handled by resolution flow
+  RESOLVED:                     ['CLOSED', 'REOPENED'], // handled by citizen verification
   ESCALATED:                    ['IN_PROGRESS'],
   REOPENED:                     ['IN_PROGRESS'],
 };
@@ -452,6 +455,158 @@ class GrievanceService {
     });
 
     return comment;
+  }
+
+  // ── Resolution ──────────────────────────────────────────────────────────────
+
+  /**
+   * Resolves a grievance by the currently assigned officer.
+   * Creates a Resolution record, updates status to RESOLVED, and stores attachment metadata.
+   */
+  static async resolveGrievance(grievanceId, data, files, officerUser) {
+    const g = await this.checkAccess(grievanceId, officerUser);
+
+    if (g.current_status !== 'IN_PROGRESS') {
+      throw Object.assign(
+        new Error(`Cannot resolve: grievance is in state ${g.current_status}. Must be IN_PROGRESS.`),
+        { status: 400 },
+      );
+    }
+
+    const { action_taken, resolution_description } = data;
+    if (!action_taken || !resolution_description) {
+      throw Object.assign(
+        new Error('action_taken and resolution_description are required'),
+        { status: 400 },
+      );
+    }
+
+    // Create the resolution record
+    const resolution = await Resolution.create({
+      grievance_id: g.grievance_id,
+      officer_id: officerUser.user_id,
+      action_taken,
+      resolution_description,
+    });
+
+    // Handle attachments (resolution proofs)
+    if (files && files.length > 0) {
+      await Attachment.bulkCreate(files.map(file => ({
+        grievance_id: g.grievance_id,
+        file_name: file.originalname,
+        stored_name: file.filename,
+        file_path: file.path,
+        file_type: file.mimetype,
+        file_size: file.size,
+        attachment_type: 'resolution_proof',
+        uploaded_by: officerUser.user_id,
+      })));
+    }
+
+    // Update grievance status
+    const oldStatus = g.current_status;
+    await g.update({ current_status: 'RESOLVED' });
+
+    // Record in history
+    await GrievanceStatusHistory.create({
+      grievance_id: g.grievance_id,
+      changed_by: officerUser.user_id,
+      old_status: oldStatus,
+      new_status: 'RESOLVED',
+      note: 'Grievance resolved by officer',
+    });
+
+    // Notify citizen
+    Notification.create({
+      user_id: g.citizen_id,
+      message: `Your grievance ${g.grn} has been marked as RESOLVED.`,
+      type: 'status_change',
+      grievance_id: g.grievance_id,
+    }).catch(() => {});
+
+    return { grievance: g, resolution };
+  }
+
+  // ── Verification ────────────────────────────────────────────────────────────
+
+  /**
+   * Citizen verifies a resolution by accepting or rejecting it.
+   */
+  static async verifyResolution(grievanceId, resolutionId, decision, rejectionReason, citizenUser) {
+    const g = await this.checkAccess(grievanceId, citizenUser);
+
+    if (g.current_status !== 'RESOLVED') {
+      throw Object.assign(
+        new Error(`Cannot verify: grievance is in state ${g.current_status}. Must be RESOLVED.`),
+        { status: 400 },
+      );
+    }
+
+    if (decision === 'rejected' && (!rejectionReason || !rejectionReason.trim())) {
+      throw Object.assign(
+        new Error('Rejection reason is required when rejecting a resolution.'),
+        { status: 400 },
+      );
+    }
+
+    // Verify the resolution belongs to this grievance
+    const resolution = await Resolution.findOne({
+      where: { resolution_id: resolutionId, grievance_id: grievanceId }
+    });
+
+    if (!resolution) {
+      throw Object.assign(
+        new Error('Resolution not found or does not belong to this grievance.'),
+        { status: 404 },
+      );
+    }
+
+    // Ensure it hasn't already been verified
+    const existingVerif = await ResolutionVerification.findOne({
+      where: { resolution_id: resolutionId }
+    });
+
+    if (existingVerif) {
+      throw Object.assign(
+        new Error('This resolution has already been verified.'),
+        { status: 400 },
+      );
+    }
+
+    const verification = await ResolutionVerification.create({
+      resolution_id: resolutionId,
+      citizen_id: citizenUser.user_id,
+      decision,
+      rejection_reason: decision === 'rejected' ? rejectionReason : null,
+    });
+
+    const newStatus = decision === 'accepted' ? 'CLOSED' : 'REOPENED';
+    const oldStatus = g.current_status;
+
+    await g.update({ current_status: newStatus, closed_at: newStatus === 'CLOSED' ? new Date() : null });
+
+    await GrievanceStatusHistory.create({
+      grievance_id: g.grievance_id,
+      changed_by: citizenUser.user_id,
+      old_status: oldStatus,
+      new_status: newStatus,
+      note: decision === 'accepted' 
+        ? 'Resolution accepted by citizen.' 
+        : `Resolution rejected by citizen. Reason: ${rejectionReason}`,
+    });
+
+    // Notify the officer
+    const activeAssignment = await this._activeAssignment(grievanceId);
+    if (activeAssignment) {
+      Notification.create({
+        user_id: activeAssignment.officer_id,
+        message: `Citizen has ${decision} the resolution for grievance ${g.grn}.`,
+        type: 'status_change',
+        grievance_id: g.grievance_id,
+      }).catch(() => {});
+    }
+
+    return { grievance: g, verification };
   }
 }
 

@@ -99,4 +99,30 @@ router.post('/:id/remarks',
   gc.addRemark,
 );
 
+// ── Resolve Grievance ─────────────────────────────────────────────────────────
+// POST /api/grievances/:id/resolve  (officer only, max 3 attachments)
+router.post('/:id/resolve',
+  requireRole('officer'),
+  upload.array('attachments', 3),
+  [
+    body('action_taken').notEmpty().withMessage('Action taken is required').trim(),
+    body('resolution_description').notEmpty().withMessage('Resolution description is required').trim(),
+    validate,
+  ],
+  gc.resolve,
+);
+
+// ── Verify Resolution ─────────────────────────────────────────────────────────
+// POST /api/grievances/:id/verify  (citizen only)
+router.post('/:id/verify',
+  requireRole('citizen'),
+  [
+    body('resolution_id').isInt({ min: 1 }).withMessage('Valid resolution_id required'),
+    body('decision').isIn(['accepted', 'rejected']).withMessage('Decision must be accepted or rejected'),
+    body('rejection_reason').optional().isString().trim(),
+    validate,
+  ],
+  gc.verify,
+);
+
 module.exports = router;

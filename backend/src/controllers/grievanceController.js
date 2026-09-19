@@ -99,3 +99,35 @@ exports.addRemark = async (req, res, next) => {
     res.status(201).json({ success: true, message: 'Comment added', data: comment });
   } catch (err) { next(err); }
 };
+
+// ── Resolve Grievance ─────────────────────────────────────────────────────────
+exports.resolve = async (req, res, next) => {
+  try {
+    const { grievance, resolution } = await GrievanceService.resolveGrievance(
+      req.params.id,
+      req.body,
+      req.files || [],
+      req.user,
+    );
+    await log(req.user.user_id, 'RESOLVE_GRIEVANCE', 'grievance', grievance.grievance_id,
+      { resolution_id: resolution.resolution_id }, req.ip);
+    res.json({ success: true, message: 'Grievance resolved successfully', data: { resolution } });
+  } catch (err) { next(err); }
+};
+
+// ── Verify Resolution (Citizen) ───────────────────────────────────────────────
+exports.verify = async (req, res, next) => {
+  try {
+    const { decision, rejection_reason, resolution_id } = req.body;
+    const { grievance, verification } = await GrievanceService.verifyResolution(
+      req.params.id,
+      parseInt(resolution_id, 10),
+      decision,
+      rejection_reason,
+      req.user,
+    );
+    await log(req.user.user_id, 'VERIFY_RESOLUTION', 'grievance', grievance.grievance_id,
+      { verification_id: verification.verification_id, decision }, req.ip);
+    res.json({ success: true, message: `Resolution ${decision}`, data: { verification } });
+  } catch (err) { next(err); }
+};

@@ -14,7 +14,7 @@ const slaMonitorJob = cron.schedule('0 * * * *', async () => {
   try {
     const overdueGrievances = await Grievance.findAll({
       where: {
-        current_status: 'IN_PROGRESS',
+        current_status: { [Op.in]: ['ASSIGNED', 'IN_PROGRESS'] },
         sla_due_date: {
           [Op.lt]: new Date()
         }
@@ -30,6 +30,16 @@ const slaMonitorJob = cron.schedule('0 * * * *', async () => {
     }
 
     for (const g of overdueGrievances) {
+      // Check if already escalated to prevent duplicate escalation for same breach
+      const existingEscalation = await Escalation.findOne({
+        where: { grievance_id: g.grievance_id, escalated_by_system: true }
+      });
+      if (existingEscalation) {
+        continue; // skip if already escalated by system
+      }
+
+      const oldStatus = g.current_status;
+
       // Transition to ESCALATED
       await g.update({ current_status: 'ESCALATED' });
 
@@ -45,7 +55,7 @@ const slaMonitorJob = cron.schedule('0 * * * *', async () => {
       await GrievanceStatusHistory.create({
         grievance_id: g.grievance_id,
         changed_by: null, // System action
-        old_status: 'IN_PROGRESS',
+        old_status: oldStatus,
         new_status: 'ESCALATED',
         note: `System auto-escalation: SLA due date (${g.sla_due_date}) exceeded.`
       });

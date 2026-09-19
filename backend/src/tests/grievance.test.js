@@ -44,6 +44,9 @@ beforeAll(async () => {
 
   // Disable FK checks so we can delete in any order
   await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+  await db.ResolutionVerification.destroy({ where: {}, truncate: false });
+  await db.Resolution.destroy({ where: {}, truncate: false });
+  await db.Attachment.destroy({ where: {}, truncate: false });
   await db.GrievanceAssignment.destroy({ where: {}, truncate: false });
   await db.GrievanceStatusHistory.destroy({ where: {}, truncate: false });
   await db.Comment.destroy({ where: {}, truncate: false });
@@ -545,6 +548,222 @@ describe('Reassign officer', () => {
       .send({ officer_id: officer2User.user_id, reason: 'No assignment exists' });
     expect(res2.statusCode).toBe(400);
     expect(res2.body.message).toMatch(/No active assignment/i);
+  });
+});
+
+// =============================================================================
+// RESOLUTION
+// =============================================================================
+describe('Resolve grievance', () => {
+  test('Officer cannot resolve if status is not IN_PROGRESS', async () => {
+    // Current status is ASSIGNED (or REOPENED from previous tests, wait, in previous tests it was updated to IN_PROGRESS. Let's check status)
+    // Actually we updated it to IN_PROGRESS in the Update status tests. But then reassigned it.
+    // Reassignment preserves the status. So it should still be IN_PROGRESS.
+    // Let's set it to SUBMITTED to test rejection
+    await db.Grievance.update({ current_status: 'SUBMITTED' }, { where: { grievance_id: grievanceId } });
+
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/resolve`)
+      .set('Authorization', `Bearer ${officer2Token}`)
+      .send({ action_taken: 'Fixed', resolution_description: 'Pothole filled' });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.message).toMatch(/Must be IN_PROGRESS/i);
+    
+    // Restore IN_PROGRESS for next tests
+    await db.Grievance.update({ current_status: 'IN_PROGRESS' }, { where: { grievance_id: grievanceId } });
+  });
+
+  test('Unauthorized officer cannot resolve', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/resolve`)
+      .set('Authorization', `Bearer ${officerToken}`) // officerToken is officer1, but it's assigned to officer2
+      .send({ action_taken: 'Fixed', resolution_description: 'Pothole filled' });
+    expect(res.statusCode).toBe(403);
+  });
+
+  test('Missing fields rejected', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/resolve`)
+      .set('Authorization', `Bearer ${officer2Token}`)
+      .send({ action_taken: 'Fixed' }); // missing resolution_description
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('Assigned officer can resolve grievance with proof', async () => {
+    // Create a dummy file
+    const fs = require('fs');
+    const path = require('path');
+    const testFilePath = path.join(__dirname, 'dummy_proof.jpg');
+    fs.writeFileSync(testFilePath, 'dummy image content');
+
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/resolve`)
+      .set('Authorization', `Bearer ${officer2Token}`)
+      .field('action_taken', 'Pothole fixed completely')
+      .field('resolution_description', 'Filled with asphalt')
+      .attach('attachments', testFilePath);
+
+    fs.unlinkSync(testFilePath);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.resolution).toBeDefined();
+    expect(res.body.data.resolution.action_taken).toBe('Pothole fixed completely');
+  });
+
+  test('Resolution record is saved in DB', async () => {
+    const resolution = await db.Resolution.findOne({
+      where: { grievance_id: grievanceId },
+      order: [['created_at', 'DESC']],
+    });
+    expect(resolution).not.toBeNull();
+    expect(resolution.action_taken).toBe('Pothole fixed completely');
+    expect(resolution.officer_id).toBe(officer2User.user_id);
+  });
+
+  test('Grievance status is updated to RESOLVED', async () => {
+    const g = await db.Grievance.findByPk(grievanceId);
+    expect(g.current_status).toBe('RESOLVED');
+  });
+
+  test('Status history is recorded for RESOLVED', async () => {
+    const hist = await db.GrievanceStatusHistory.findOne({
+      where: { grievance_id: grievanceId, new_status: 'RESOLVED' },
+    });
+    expect(hist).not.toBeNull();
+    expect(hist.changed_by).toBe(officer2User.user_id);
+  });
+
+  test('Attachment record is created for resolution_proof', async () => {
+    const attachment = await db.Attachment.findOne({
+      where: { grievance_id: grievanceId, attachment_type: 'resolution_proof' },
+    });
+    expect(attachment).not.toBeNull();
+    expect(attachment.file_name).toBe('dummy_proof.jpg');
+  });
+
+  test('Multiple resolutions are supported after reopening', async () => {
+    // Simulate reopening
+    await db.Grievance.update({ current_status: 'IN_PROGRESS' }, { where: { grievance_id: grievanceId } });
+
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/resolve`)
+      .set('Authorization', `Bearer ${officer2Token}`)
+      .send({ action_taken: 'Fixed again', resolution_description: 'Double checked' });
+      
+    expect(res.statusCode).toBe(200);
+
+    const resolutions = await db.Resolution.findAll({
+      where: { grievance_id: grievanceId },
+    });
+    expect(resolutions.length).toBe(2);
+  });
+});
+
+// =============================================================================
+// CITIZEN VERIFICATION
+// =============================================================================
+describe('Verify resolution', () => {
+  let resolutionId;
+
+  beforeAll(async () => {
+    const resolution = await db.Resolution.findOne({
+      where: { grievance_id: grievanceId },
+      order: [['created_at', 'DESC']],
+    });
+    resolutionId = resolution.resolution_id;
+    await db.Grievance.update({ current_status: 'RESOLVED' }, { where: { grievance_id: grievanceId } });
+  });
+
+  test('Unauthorized citizen blocked', async () => {
+    const bcrypt = require('bcryptjs');
+    const hash = await bcrypt.hash('Test@1234', 10);
+    const otherCitizen = await db.User.create({
+      name: 'Other Citizen', email: `othercitizen${Date.now()}@pgrs-test.dev`, password_hash: hash,
+      role: 'citizen', is_active: true,
+    });
+    
+    const resAuth = await request(app).post('/api/auth/login').send({ email: otherCitizen.email, password: 'Test@1234' });
+    const otherToken = resAuth.body.token;
+
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/verify`)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ resolution_id: resolutionId, decision: 'accepted' });
+    
+    expect(res.statusCode).toBe(403);
+  });
+
+  test('Reject resolution requires reason', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/verify`)
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({ resolution_id: resolutionId, decision: 'rejected' });
+    
+    expect(res.statusCode).toBe(400);
+    expect(res.body.message).toMatch(/Rejection reason is required/i);
+  });
+
+  test('Citizen rejects resolution -> status REOPENED', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/verify`)
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({ resolution_id: resolutionId, decision: 'rejected', rejection_reason: 'Issue persists' });
+    
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const g = await db.Grievance.findByPk(grievanceId);
+    expect(g.current_status).toBe('REOPENED');
+
+    const verif = await db.ResolutionVerification.findOne({ where: { resolution_id: resolutionId } });
+    expect(verif).not.toBeNull();
+    expect(verif.decision).toBe('rejected');
+    expect(verif.rejection_reason).toBe('Issue persists');
+  });
+
+  test('Cannot verify already verified resolution', async () => {
+    // Temporarily reset status to RESOLVED to bypass the status check and hit the duplicate check
+    await db.Grievance.update({ current_status: 'RESOLVED' }, { where: { grievance_id: grievanceId } });
+
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/verify`)
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({ resolution_id: resolutionId, decision: 'accepted' });
+    
+    expect(res.statusCode).toBe(400);
+    expect(res.body.message).toMatch(/already been verified/i);
+    
+    // Restore REOPENED status
+    await db.Grievance.update({ current_status: 'REOPENED' }, { where: { grievance_id: grievanceId } });
+  });
+
+  test('After reopening, allow new resolution cycle + citizen accepts', async () => {
+    const resolveRes = await request(app)
+      .patch(`/api/grievances/${grievanceId}/status`) // Changed to PATCH
+      .set('Authorization', `Bearer ${officer2Token}`)
+      .send({ status: 'IN_PROGRESS' });
+    expect(resolveRes.statusCode).toBe(200);
+
+    const newRes = await request(app)
+      .post(`/api/grievances/${grievanceId}/resolve`)
+      .set('Authorization', `Bearer ${officer2Token}`)
+      .field('action_taken', 'Really fixed it this time')
+      .field('resolution_description', 'Done done');
+    expect(newRes.statusCode).toBe(200);
+    
+    const newResolutionId = newRes.body.data.resolution.resolution_id;
+
+    const acceptRes = await request(app)
+      .post(`/api/grievances/${grievanceId}/verify`)
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({ resolution_id: newResolutionId, decision: 'accepted' });
+    
+    expect(acceptRes.statusCode).toBe(200);
+    
+    const g = await db.Grievance.findByPk(grievanceId);
+    expect(g.current_status).toBe('CLOSED');
+    expect(g.closed_at).not.toBeNull();
   });
 });
 
