@@ -1,53 +1,102 @@
 'use strict';
 
 const express = require('express');
-const router = express.Router();
-const grievanceController = require('../controllers/grievanceController');
+const router  = express.Router();
+const gc      = require('../controllers/grievanceController');
 const { verifyToken, requireRole } = require('../middleware/auth');
-const upload = require('../config/multer');
-const { body, validationResult } = require('express-validator');
+const upload  = require('../config/multer');
+const { body, query, validationResult } = require('express-validator');
 
+// ── Validation helper ─────────────────────────────────────────────────────────
 const validate = (req, res, next) => {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
-  next();
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
+  }
+  return next();
 };
 
-// Protect all grievance routes
+// All grievance routes require a valid JWT
 router.use(verifyToken);
 
-// Submit Grievance (Citizen only)
-// Multer handles max 3 files
-router.post('/', requireRole('citizen'), upload.array('attachments', 3), [
-  body('title').notEmpty().withMessage('Title is required').trim(),
-  body('description').notEmpty().withMessage('Description is required').trim(),
-  body('category_id').isInt().withMessage('Valid category_id required'),
-  validate
-], grievanceController.submit);
+// ── List Grievances ───────────────────────────────────────────────────────────
+// GET /api/grievances
+// citizen → own, officer → assigned to them, dept_head → department, admin → all
+router.get('/', [
+  query('status').optional().isString(),
+  query('sub_category_id').optional().isInt(),
+  query('department_id').optional().isInt(),
+  validate,
+], gc.listGrievances);
 
-// Assignment routes (Department Head only)
-router.post('/:id/assign', requireRole('department_head', 'administrator'), [
-  body('officer_id').isInt().withMessage('Valid officer_id required'),
-  validate
-], grievanceController.assign);
+// ── Submit Grievance ──────────────────────────────────────────────────────────
+// POST /api/grievances  (citizen only, max 3 attachments)
+router.post('/',
+  requireRole('citizen'),
+  upload.array('attachments', 3),
+  [
+    body('title').notEmpty().withMessage('Title is required').trim(),
+    body('description').notEmpty().withMessage('Description is required').trim(),
+    body('sub_category_id').isInt({ min: 1 }).withMessage('Valid sub_category_id required'),
+    body('location').optional().isString().trim(),
+    body('priority').optional().isIn(['low', 'medium', 'high']),
+    validate,
+  ],
+  gc.submit,
+);
 
-router.post('/:id/reassign', requireRole('department_head', 'administrator'), [
-  body('officer_id').isInt().withMessage('Valid officer_id required'),
-  body('reason').notEmpty().withMessage('Reason is required').trim(),
-  validate
-], grievanceController.reassign);
+// ── Get Single Grievance ──────────────────────────────────────────────────────
+// GET /api/grievances/:id
+router.get('/:id', gc.getGrievance);
 
-// Status updates (Officer or Dept Head)
-router.patch('/:id/status', requireRole('officer', 'department_head'), [
-  body('status').isIn(['UNDER_REVIEW', 'IN_PROGRESS', 'RESOLVED']),
-  body('note').optional().trim(),
-  validate
-], grievanceController.updateStatus);
+// ── Assign Officer ────────────────────────────────────────────────────────────
+// POST /api/grievances/:id/assign  (dept head or admin)
+router.post('/:id/assign',
+  requireRole('department_head', 'administrator'),
+  [
+    body('officer_id').isInt({ min: 1 }).withMessage('Valid officer_id required'),
+    validate,
+  ],
+  gc.assign,
+);
 
-// Remarks (Officer or Dept Head)
-router.post('/:id/remarks', requireRole('officer', 'department_head'), [
-  body('note').notEmpty().withMessage('Note is required').trim(),
-  validate
-], grievanceController.addRemark);
+// ── Reassign Officer ──────────────────────────────────────────────────────────
+// POST /api/grievances/:id/reassign  (dept head or admin)
+router.post('/:id/reassign',
+  requireRole('department_head', 'administrator'),
+  [
+    body('officer_id').isInt({ min: 1 }).withMessage('Valid officer_id required'),
+    body('reason').notEmpty().withMessage('Reason is required').trim(),
+    validate,
+  ],
+  gc.reassign,
+);
+
+// ── Update Status ─────────────────────────────────────────────────────────────
+// PATCH /api/grievances/:id/status  (officer or dept head)
+// Allowed manual transitions: ASSIGNED→IN_PROGRESS, SUBMITTED→UNDER_REVIEW, ESCALATED→IN_PROGRESS, REOPENED→IN_PROGRESS
+router.patch('/:id/status',
+  requireRole('officer', 'department_head', 'administrator'),
+  [
+    body('status')
+      .isIn(['UNDER_REVIEW', 'IN_PROGRESS', 'ESCALATED', 'REOPENED'])
+      .withMessage('Invalid status value'),
+    body('note').optional().isString().trim(),
+    validate,
+  ],
+  gc.updateStatus,
+);
+
+// ── Add Remark / Comment ──────────────────────────────────────────────────────
+// POST /api/grievances/:id/remarks  (officer or dept head)
+// Stored in Comments table (is_internal=true for officers/dept-heads)
+router.post('/:id/remarks',
+  requireRole('officer', 'department_head', 'administrator'),
+  [
+    body('note').notEmpty().withMessage('Note/comment content is required').trim(),
+    validate,
+  ],
+  gc.addRemark,
+);
 
 module.exports = router;

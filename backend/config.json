@@ -1,21 +1,21 @@
 {
   "development": {
     "username": "root",
-    "password": "CHANGE_ME",
+    "password": "root",
     "database": "pgrs_db",
     "host": "127.0.0.1",
     "dialect": "mysql"
   },
   "test": {
     "username": "root",
-    "password": "CHANGE_ME",
+    "password": "root",
     "database": "pgrs_test_db",
     "host": "127.0.0.1",
     "dialect": "mysql"
   },
   "production": {
     "username": "root",
-    "password": "CHANGE_ME",
+    "password": "root",
     "database": "pgrs_db",
     "host": "127.0.0.1",
     "dialect": "mysql"

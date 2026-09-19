@@ -1,0 +1,14 @@
+
+> pgrs-backend@1.0.0 test
+> jest --runInBand --forceExit
+
+  console.log
+    ◇ injected env (10) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.log
+    ◇ injected env (0) from .env // tip: ⌘ suppress logs { quiet: true }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+

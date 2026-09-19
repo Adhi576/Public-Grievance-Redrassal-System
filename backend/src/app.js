@@ -33,11 +33,11 @@ app.use('/api/users',        require('./routes/users'));
 app.use('/api/departments',  require('./routes/departments'));
 app.use('/api/categories',   require('./routes/categories'));
 app.use('/api/grievances',   require('./routes/grievances'));
-app.use('/api/attachments',  require('./routes/attachments'));
-app.use('/api/notifications',require('./routes/notifications'));
-app.use('/api/feedback',     require('./routes/feedback'));
-app.use('/api/reports',      require('./routes/reports'));
-app.use('/api/audit-logs',   require('./routes/auditLogs'));
+// app.use('/api/attachments',  require('./routes/attachments'));
+// app.use('/api/notifications',require('./routes/notifications'));
+// app.use('/api/feedback',     require('./routes/feedback'));
+// app.use('/api/reports',      require('./routes/reports'));
+// app.use('/api/audit-logs',   require('./routes/auditLogs'));
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {

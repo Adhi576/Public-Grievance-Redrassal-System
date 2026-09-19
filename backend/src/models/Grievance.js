@@ -36,10 +36,10 @@ const Grievance = sequelize.define('Grievance', {
     type: DataTypes.TEXT,
     allowNull: false,
   },
-  category_id: {
+  sub_category_id: {
     type: DataTypes.INTEGER.UNSIGNED,
     allowNull: false,
-    references: { model: 'categories', key: 'category_id' },
+    references: { model: 'sub_categories', key: 'sub_category_id' },
   },
   department_id: {
     type: DataTypes.INTEGER.UNSIGNED,
@@ -51,12 +51,11 @@ const Grievance = sequelize.define('Grievance', {
     allowNull: false,
     references: { model: 'users', key: 'user_id' },
   },
-  officer_id: {
-    type: DataTypes.INTEGER.UNSIGNED,
+  location: {
+    type: DataTypes.STRING(255),
     allowNull: true,
-    references: { model: 'users', key: 'user_id' },
   },
-  status: {
+  current_status: {
     type: DataTypes.ENUM(...GRIEVANCE_STATUSES),
     allowNull: false,
     defaultValue: 'SUBMITTED',
@@ -89,9 +88,8 @@ const Grievance = sequelize.define('Grievance', {
   updatedAt: 'updated_at',
   indexes: [
     { fields: ['citizen_id'] },
-    { fields: ['officer_id'] },
     { fields: ['department_id'] },
-    { fields: ['status'] },
+    { fields: ['current_status'] },
     { fields: ['sla_due_date'] },
   ],
 });

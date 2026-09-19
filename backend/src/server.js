@@ -3,7 +3,7 @@
 const http = require('http');
 const app = require('./app');
 const sequelize = require('./config/database');
-const { startSlaMonitor } = require('./jobs/slaMonitorJob');
+const slaMonitorJob = require('./jobs/slaMonitorJob');
 
 const PORT = process.env.PORT || 5000;
 
@@ -18,7 +18,9 @@ async function startServer() {
     });
 
     // Start SLA monitoring job (runs every hour)
-    startSlaMonitor();
+    if (slaMonitorJob && typeof slaMonitorJob.start === 'function') {
+      slaMonitorJob.start();
+    }
 
     // Graceful shutdown
     process.on('SIGTERM', () => {

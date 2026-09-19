@@ -2,7 +2,7 @@
 
 const multer = require('multer');
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const fs = require('fs');
 
 const storageDir = process.env.UPLOAD_PATH || './uploads';
@@ -26,7 +26,7 @@ const storage = multer.diskStorage({
     cb(null, getGrievanceDir(req));
   },
   filename: (_req, file, cb) => {
-    const uniqueSuffix = uuidv4() + path.extname(file.originalname);
+    const uniqueSuffix = crypto.randomUUID() + path.extname(file.originalname);
     cb(null, uniqueSuffix);
   }
 });

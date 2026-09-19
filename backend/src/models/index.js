@@ -10,13 +10,16 @@ const sequelize = require('../config/database');
 const User                  = require('./User');
 const Department            = require('./Department');
 const Category              = require('./Category');
+const SubCategory           = require('./SubCategory');
 const { Grievance }         = require('./Grievance');
+const GrievanceAssignment   = require('./GrievanceAssignment');
 const GrievanceStatusHistory= require('./GrievanceStatusHistory');
 const Attachment            = require('./Attachment');
 const Resolution            = require('./Resolution');
-const VerificationRecord    = require('./VerificationRecord');
+const ResolutionVerification= require('./ResolutionVerification');
 const Escalation            = require('./Escalation');
-const Reassignment          = require('./Reassignment');
+const EscalationRule        = require('./EscalationRule');
+const Comment               = require('./Comment');
 const Notification          = require('./Notification');
 const Feedback              = require('./Feedback');
 const AuditLog              = require('./AuditLog');
@@ -33,27 +36,48 @@ Department.belongsTo(User, { foreignKey: 'head_user_id', as: 'head' });
 Department.hasMany(Category, { foreignKey: 'department_id', as: 'categories' });
 Category.belongsTo(Department, { foreignKey: 'department_id', as: 'department' });
 
+// ── Category ↔ SubCategories ──────────────────────────────────────────────────
+Category.hasMany(SubCategory, { foreignKey: 'category_id', as: 'subCategories' });
+SubCategory.belongsTo(Category, { foreignKey: 'category_id', as: 'category' });
+
+// ── EscalationRule ────────────────────────────────────────────────────────────
+Department.hasMany(EscalationRule, { foreignKey: 'department_id', as: 'escalationRules' });
+EscalationRule.belongsTo(Department, { foreignKey: 'department_id', as: 'department' });
+
+Category.hasMany(EscalationRule, { foreignKey: 'category_id', as: 'escalationRules' });
+EscalationRule.belongsTo(Category, { foreignKey: 'category_id', as: 'category' });
+
 // ── Grievances ────────────────────────────────────────────────────────────────
 // Citizen
 User.hasMany(Grievance, { foreignKey: 'citizen_id', as: 'submittedGrievances' });
 Grievance.belongsTo(User, { foreignKey: 'citizen_id', as: 'citizen' });
 
-// Officer
-User.hasMany(Grievance, { foreignKey: 'officer_id', as: 'assignedGrievances' });
-Grievance.belongsTo(User, { foreignKey: 'officer_id', as: 'officer' });
-
-// Category
-Category.hasMany(Grievance, { foreignKey: 'category_id', as: 'grievances' });
-Grievance.belongsTo(Category, { foreignKey: 'category_id', as: 'category' });
+// SubCategory
+SubCategory.hasMany(Grievance, { foreignKey: 'sub_category_id', as: 'grievances' });
+Grievance.belongsTo(SubCategory, { foreignKey: 'sub_category_id', as: 'subCategory' });
 
 // Department
 Department.hasMany(Grievance, { foreignKey: 'department_id', as: 'grievances' });
 Grievance.belongsTo(Department, { foreignKey: 'department_id', as: 'department' });
 
+// ── GrievanceAssignments ──────────────────────────────────────────────────────
+Grievance.hasMany(GrievanceAssignment, { foreignKey: 'grievance_id', as: 'assignments' });
+GrievanceAssignment.belongsTo(Grievance, { foreignKey: 'grievance_id', as: 'grievance' });
+
+User.hasMany(GrievanceAssignment, { foreignKey: 'officer_id', as: 'assignedGrievances' });
+GrievanceAssignment.belongsTo(User, { foreignKey: 'officer_id', as: 'officer' });
+
+GrievanceAssignment.belongsTo(User, { foreignKey: 'assigned_by', as: 'assignedBy' });
+
 // ── GrievanceStatusHistory ────────────────────────────────────────────────────
 Grievance.hasMany(GrievanceStatusHistory, { foreignKey: 'grievance_id', as: 'statusHistory' });
 GrievanceStatusHistory.belongsTo(Grievance, { foreignKey: 'grievance_id', as: 'grievance' });
 GrievanceStatusHistory.belongsTo(User, { foreignKey: 'changed_by', as: 'changedBy' });
+
+// ── Comments ──────────────────────────────────────────────────────────────────
+Grievance.hasMany(Comment, { foreignKey: 'grievance_id', as: 'comments' });
+Comment.belongsTo(Grievance, { foreignKey: 'grievance_id', as: 'grievance' });
+Comment.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
 // ── Attachments ───────────────────────────────────────────────────────────────
 Grievance.hasMany(Attachment, { foreignKey: 'grievance_id', as: 'attachments' });
@@ -65,23 +89,15 @@ Grievance.hasMany(Resolution, { foreignKey: 'grievance_id', as: 'resolutions' })
 Resolution.belongsTo(Grievance, { foreignKey: 'grievance_id', as: 'grievance' });
 Resolution.belongsTo(User, { foreignKey: 'officer_id', as: 'officer' });
 
-// ── VerificationRecords ───────────────────────────────────────────────────────
-Grievance.hasMany(VerificationRecord, { foreignKey: 'grievance_id', as: 'verifications' });
-VerificationRecord.belongsTo(Grievance, { foreignKey: 'grievance_id', as: 'grievance' });
-VerificationRecord.belongsTo(Resolution, { foreignKey: 'resolution_id', as: 'resolution' });
-VerificationRecord.belongsTo(User, { foreignKey: 'citizen_id', as: 'citizen' });
+// ── ResolutionVerifications ───────────────────────────────────────────────────
+Resolution.hasMany(ResolutionVerification, { foreignKey: 'resolution_id', as: 'verifications' });
+ResolutionVerification.belongsTo(Resolution, { foreignKey: 'resolution_id', as: 'resolution' });
+ResolutionVerification.belongsTo(User, { foreignKey: 'citizen_id', as: 'citizen' });
 
 // ── Escalations ───────────────────────────────────────────────────────────────
 Grievance.hasMany(Escalation, { foreignKey: 'grievance_id', as: 'escalations' });
 Escalation.belongsTo(Grievance, { foreignKey: 'grievance_id', as: 'grievance' });
 Escalation.belongsTo(User, { foreignKey: 'department_head_id', as: 'departmentHead' });
-
-// ── Reassignments ─────────────────────────────────────────────────────────────
-Grievance.hasMany(Reassignment, { foreignKey: 'grievance_id', as: 'reassignments' });
-Reassignment.belongsTo(Grievance, { foreignKey: 'grievance_id', as: 'grievance' });
-Reassignment.belongsTo(User, { foreignKey: 'from_officer_id', as: 'fromOfficer' });
-Reassignment.belongsTo(User, { foreignKey: 'to_officer_id', as: 'toOfficer' });
-Reassignment.belongsTo(User, { foreignKey: 'reassigned_by', as: 'reassignedBy' });
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 User.hasMany(Notification, { foreignKey: 'user_id', as: 'notifications' });
@@ -106,13 +122,16 @@ module.exports = {
   User,
   Department,
   Category,
+  SubCategory,
   Grievance,
+  GrievanceAssignment,
   GrievanceStatusHistory,
   Attachment,
   Resolution,
-  VerificationRecord,
+  ResolutionVerification,
   Escalation,
-  Reassignment,
+  EscalationRule,
+  Comment,
   Notification,
   Feedback,
   AuditLog,

@@ -3,8 +3,8 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
-const VerificationRecord = sequelize.define('VerificationRecord', {
-  verification_id: {
+const Comment = sequelize.define('Comment', {
+  comment_id: {
     type: DataTypes.INTEGER.UNSIGNED,
     primaryKey: true,
     autoIncrement: true,
@@ -14,35 +14,28 @@ const VerificationRecord = sequelize.define('VerificationRecord', {
     allowNull: false,
     references: { model: 'grievances', key: 'grievance_id' },
   },
-  resolution_id: {
-    type: DataTypes.INTEGER.UNSIGNED,
-    allowNull: false,
-    references: { model: 'resolutions', key: 'resolution_id' },
-  },
-  citizen_id: {
+  user_id: {
     type: DataTypes.INTEGER.UNSIGNED,
     allowNull: false,
     references: { model: 'users', key: 'user_id' },
   },
-  decision: {
-    type: DataTypes.ENUM('accepted', 'rejected'),
-    allowNull: false,
-  },
-  rejection_reason: {
+  content: {
     type: DataTypes.TEXT,
-    allowNull: true,
-  },
-  verified_at: {
-    type: DataTypes.DATE,
     allowNull: false,
-    defaultValue: DataTypes.NOW,
+  },
+  is_internal: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
   },
 }, {
-  tableName: 'verification_records',
-  timestamps: false,
+  tableName: 'comments',
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
   indexes: [
     { fields: ['grievance_id'] },
   ],
 });
 
-module.exports = VerificationRecord;
+module.exports = Comment;

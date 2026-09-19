@@ -14,7 +14,7 @@ const slaMonitorJob = cron.schedule('0 * * * *', async () => {
   try {
     const overdueGrievances = await Grievance.findAll({
       where: {
-        status: 'IN_PROGRESS',
+        current_status: 'IN_PROGRESS',
         sla_due_date: {
           [Op.lt]: new Date()
         }
@@ -31,7 +31,7 @@ const slaMonitorJob = cron.schedule('0 * * * *', async () => {
 
     for (const g of overdueGrievances) {
       // Transition to ESCALATED
-      await g.update({ status: 'ESCALATED' });
+      await g.update({ current_status: 'ESCALATED' });
 
       // Add to escalation table
       await Escalation.create({

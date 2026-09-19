@@ -3,8 +3,8 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
-const Reassignment = sequelize.define('Reassignment', {
-  reassignment_id: {
+const GrievanceAssignment = sequelize.define('GrievanceAssignment', {
+  assignment_id: {
     type: DataTypes.INTEGER.UNSIGNED,
     primaryKey: true,
     autoIncrement: true,
@@ -14,36 +14,36 @@ const Reassignment = sequelize.define('Reassignment', {
     allowNull: false,
     references: { model: 'grievances', key: 'grievance_id' },
   },
-  from_officer_id: {
+  officer_id: {
+    type: DataTypes.INTEGER.UNSIGNED,
+    allowNull: false,
+    references: { model: 'users', key: 'user_id' },
+  },
+  assigned_by: {
     type: DataTypes.INTEGER.UNSIGNED,
     allowNull: true,
     references: { model: 'users', key: 'user_id' },
   },
-  to_officer_id: {
-    type: DataTypes.INTEGER.UNSIGNED,
+  assigned_at: {
+    type: DataTypes.DATE,
     allowNull: false,
-    references: { model: 'users', key: 'user_id' },
+    defaultValue: DataTypes.NOW,
+  },
+  unassigned_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
   },
   reason: {
     type: DataTypes.TEXT,
     allowNull: true,
   },
-  reassigned_by: {
-    type: DataTypes.INTEGER.UNSIGNED,
-    allowNull: false,
-    references: { model: 'users', key: 'user_id' },
-  },
-  reassigned_at: {
-    type: DataTypes.DATE,
-    allowNull: false,
-    defaultValue: DataTypes.NOW,
-  },
 }, {
-  tableName: 'reassignments',
+  tableName: 'grievance_assignments',
   timestamps: false,
   indexes: [
     { fields: ['grievance_id'] },
+    { fields: ['officer_id'] },
   ],
 });
 
-module.exports = Reassignment;
+module.exports = GrievanceAssignment;

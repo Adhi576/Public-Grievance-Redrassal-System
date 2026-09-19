@@ -3,43 +3,41 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
-const Resolution = sequelize.define('Resolution', {
-  resolution_id: {
+const ResolutionVerification = sequelize.define('ResolutionVerification', {
+  verification_id: {
     type: DataTypes.INTEGER.UNSIGNED,
     primaryKey: true,
     autoIncrement: true,
   },
-  grievance_id: {
+  resolution_id: {
     type: DataTypes.INTEGER.UNSIGNED,
     allowNull: false,
-    references: { model: 'grievances', key: 'grievance_id' },
+    references: { model: 'resolutions', key: 'resolution_id' },
   },
-  officer_id: {
+  citizen_id: {
     type: DataTypes.INTEGER.UNSIGNED,
     allowNull: false,
     references: { model: 'users', key: 'user_id' },
   },
-  resolution_description: {
-    type: DataTypes.TEXT,
+  decision: {
+    type: DataTypes.ENUM('accepted', 'rejected'),
     allowNull: false,
   },
-  action_taken: {
+  rejection_reason: {
     type: DataTypes.TEXT,
-    allowNull: false,
+    allowNull: true,
   },
-  resolved_at: {
+  verified_at: {
     type: DataTypes.DATE,
     allowNull: false,
     defaultValue: DataTypes.NOW,
   },
 }, {
-  tableName: 'resolutions',
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: false,
+  tableName: 'resolution_verifications',
+  timestamps: false,
   indexes: [
-    { fields: ['grievance_id'] },
+    { fields: ['resolution_id'] },
   ],
 });
 
-module.exports = Resolution;
+module.exports = ResolutionVerification;

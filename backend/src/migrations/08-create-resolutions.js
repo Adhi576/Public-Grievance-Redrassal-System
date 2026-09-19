@@ -15,8 +15,8 @@ module.exports = {
       },
       resolution_description: { type: Sequelize.TEXT, allowNull: false },
       action_taken:           { type: Sequelize.TEXT, allowNull: false },
-      remarks:                { type: Sequelize.TEXT, allowNull: true },
-      submitted_at:           { type: Sequelize.DATE, allowNull: false, defaultValue: Sequelize.NOW },
+      resolved_at:            { type: Sequelize.DATE, allowNull: false, defaultValue: Sequelize.NOW },
+      created_at:             { type: Sequelize.DATE, allowNull: false, defaultValue: Sequelize.NOW },
     });
     await queryInterface.addIndex('resolutions', ['grievance_id']);
   },

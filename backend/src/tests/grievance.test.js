@@ -1,0 +1,566 @@
+'use strict';
+
+/**
+ * Phase 2 Grievance Backend Tests
+ *
+ * Covers:
+ *  - create grievance (valid, invalid sub_category)
+ *  - get grievance (own, unauthorized)
+ *  - list grievances (citizen/officer/dept_head filters)
+ *  - assign officer (valid, already assigned, bad officer)
+ *  - reassign officer (valid, no active assignment, same officer)
+ *  - active officer access check vs old officer loses access
+ *  - update status (valid transitions, invalid transition)
+ *  - status history verification
+ *  - add comment / remark
+ *  - subcategory/category retrieval
+ *  - department filtering
+ *  - auth still works
+ */
+
+const request = require('supertest');
+const app     = require('../app');
+const db      = require('../models');
+
+// ── Test data (inserted fresh for each suite) ─────────────────────────────────
+let adminToken, citizenToken, officerToken, officer2Token, deptHeadToken;
+let adminUser, citizenUser, officerUser, officer2User, deptHeadUser;
+let department, category, subCategory;
+let grievanceId, grn;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+async function login(email, password) {
+  const res = await request(app)
+    .post('/api/auth/login')
+    .send({ email, password });
+  expect(res.statusCode).toBe(200);
+  return res.body.token;
+}
+
+// ── Setup ──────────────────────────────────────────────────────────────────────
+beforeAll(async () => {
+  await db.sequelize.authenticate();
+  const q = db.sequelize.getQueryInterface();
+
+  // Disable FK checks so we can delete in any order
+  await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+  await db.GrievanceAssignment.destroy({ where: {}, truncate: false });
+  await db.GrievanceStatusHistory.destroy({ where: {}, truncate: false });
+  await db.Comment.destroy({ where: {}, truncate: false });
+  await db.Grievance.destroy({ where: {}, truncate: false });
+  await db.SubCategory.destroy({ where: {}, truncate: false });
+  await db.Category.destroy({ where: {}, truncate: false });
+  await db.User.destroy({ where: { email: { [db.sequelize.Sequelize.Op.like]: '%@pgrs-test.dev' } } });
+  await db.Department.destroy({ where: { name: { [db.sequelize.Sequelize.Op.like]: '%Phase2%' } } });
+  await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+
+  const bcrypt = require('bcryptjs');
+  const hash = await bcrypt.hash('Test@1234', 10);
+
+  // Department
+  department = await db.Department.create({
+    name: 'Test Dept Phase2',
+    sla_days: 5,
+    is_active: true,
+  });
+
+  // Users
+  adminUser = await db.User.create({
+    name: 'Admin P2', email: 'admin@pgrs-test.dev', password_hash: hash,
+    role: 'administrator', is_active: true,
+  });
+  citizenUser = await db.User.create({
+    name: 'Citizen P2', email: 'citizen@pgrs-test.dev', password_hash: hash,
+    role: 'citizen', is_active: true,
+  });
+  officerUser = await db.User.create({
+    name: 'Officer P2', email: 'officer@pgrs-test.dev', password_hash: hash,
+    role: 'officer', department_id: department.department_id, is_active: true,
+  });
+  officer2User = await db.User.create({
+    name: 'Officer2 P2', email: 'officer2@pgrs-test.dev', password_hash: hash,
+    role: 'officer', department_id: department.department_id, is_active: true,
+  });
+  deptHeadUser = await db.User.create({
+    name: 'DeptHead P2', email: 'depthead@pgrs-test.dev', password_hash: hash,
+    role: 'department_head', department_id: department.department_id, is_active: true,
+  });
+
+  // Set department head
+  await department.update({ head_user_id: deptHeadUser.user_id });
+
+  // Category + SubCategory
+  category = await db.Category.create({
+    name: 'Roads P2',
+    department_id: department.department_id,
+    is_active: true,
+  });
+  subCategory = await db.SubCategory.create({
+    name: 'Pothole P2',
+    category_id: category.category_id,
+    is_active: true,
+  });
+
+  // Tokens
+  adminToken    = await login('admin@pgrs-test.dev',    'Test@1234');
+  citizenToken  = await login('citizen@pgrs-test.dev',  'Test@1234');
+  officerToken  = await login('officer@pgrs-test.dev',  'Test@1234');
+  officer2Token = await login('officer2@pgrs-test.dev', 'Test@1234');
+  deptHeadToken = await login('depthead@pgrs-test.dev', 'Test@1234');
+});
+
+afterAll(async () => {
+  await db.sequelize.close();
+});
+
+// =============================================================================
+// AUTH SMOKE TEST
+// =============================================================================
+describe('Auth smoke test', () => {
+  test('POST /api/auth/login returns token for citizen', async () => {
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'citizen@pgrs-test.dev', password: 'Test@1234' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.token).toBeTruthy();
+  });
+
+  test('POST /api/auth/login rejects bad password', async () => {
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'citizen@pgrs-test.dev', password: 'wrong' });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+// =============================================================================
+// GRIEVANCE CREATION
+// =============================================================================
+describe('Create grievance', () => {
+  test('Citizen can submit grievance with valid sub_category_id', async () => {
+    const res = await request(app)
+      .post('/api/grievances')
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({
+        title:           'Test pothole on Main St',
+        description:     'Large pothole causing accidents',
+        sub_category_id: subCategory.sub_category_id,
+        location:        'Main St & 1st Ave',
+        priority:        'high',
+      });
+    expect(res.statusCode).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.grn).toMatch(/^PGRS-/);
+    grievanceId = res.body.data.grievance_id;
+    grn = res.body.data.grn;
+  });
+
+  test('Submit fails with invalid sub_category_id (not an int)', async () => {
+    const res = await request(app)
+      .post('/api/grievances')
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({
+        title:           'Bad subcat',
+        description:     'desc',
+        sub_category_id: 'abc',
+      });
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('Submit fails with non-existent sub_category_id', async () => {
+    const res = await request(app)
+      .post('/api/grievances')
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({
+        title:           'Non-existent subcat',
+        description:     'desc',
+        sub_category_id: 999999,
+      });
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('Officer cannot submit grievance', async () => {
+    const res = await request(app)
+      .post('/api/grievances')
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({
+        title: 'Officer submit', description: 'desc', sub_category_id: subCategory.sub_category_id,
+      });
+    expect(res.statusCode).toBe(403);
+  });
+
+  test('Initial status history entry is created (SUBMITTED)', async () => {
+    const history = await db.GrievanceStatusHistory.findOne({
+      where: { grievance_id: grievanceId, new_status: 'SUBMITTED' },
+    });
+    expect(history).not.toBeNull();
+    expect(history.old_status).toBeNull();
+  });
+});
+
+// =============================================================================
+// GET GRIEVANCE
+// =============================================================================
+describe('Get grievance', () => {
+  test('Citizen can get their own grievance', async () => {
+    const res = await request(app)
+      .get(`/api/grievances/${grievanceId}`)
+      .set('Authorization', `Bearer ${citizenToken}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.grievance.grn).toBe(grn);
+  });
+
+  test('Get returns subCategory with parent category', async () => {
+    const res = await request(app)
+      .get(`/api/grievances/${grievanceId}`)
+      .set('Authorization', `Bearer ${citizenToken}`);
+    expect(res.statusCode).toBe(200);
+    const sub = res.body.data.grievance.subCategory;
+    expect(sub).toBeDefined();
+    expect(sub.name).toBe('Pothole P2');
+    expect(sub.category).toBeDefined();
+    expect(sub.category.name).toBe('Roads P2');
+  });
+
+  test('Officer cannot access unassigned grievance', async () => {
+    const res = await request(app)
+      .get(`/api/grievances/${grievanceId}`)
+      .set('Authorization', `Bearer ${officerToken}`);
+    expect(res.statusCode).toBe(403);
+  });
+
+  test('Dept head can access grievance in their department', async () => {
+    const res = await request(app)
+      .get(`/api/grievances/${grievanceId}`)
+      .set('Authorization', `Bearer ${deptHeadToken}`);
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('Returns 404 for non-existent grievance', async () => {
+    const res = await request(app)
+      .get('/api/grievances/999999')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+// =============================================================================
+// LIST GRIEVANCES
+// =============================================================================
+describe('List grievances', () => {
+  test('Citizen only sees their own grievances', async () => {
+    const res = await request(app)
+      .get('/api/grievances')
+      .set('Authorization', `Bearer ${citizenToken}`);
+    expect(res.statusCode).toBe(200);
+    const ids = res.body.data.map(g => g.citizen_id);
+    expect(ids.every(id => id === citizenUser.user_id)).toBe(true);
+  });
+
+  test('Dept head sees grievances in their department', async () => {
+    const res = await request(app)
+      .get('/api/grievances')
+      .set('Authorization', `Bearer ${deptHeadToken}`);
+    expect(res.statusCode).toBe(200);
+    const deptIds = res.body.data.map(g => g.department_id);
+    expect(deptIds.every(id => id === department.department_id)).toBe(true);
+  });
+
+  test('Officer sees only assigned grievances (empty before assignment)', async () => {
+    const res = await request(app)
+      .get('/api/grievances')
+      .set('Authorization', `Bearer ${officerToken}`);
+    expect(res.statusCode).toBe(200);
+    // grievance is not yet assigned — officer list should be empty
+    expect(res.body.data.length).toBe(0);
+  });
+
+  test('Admin sees all grievances', async () => {
+    const res = await request(app)
+      .get('/api/grievances')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+  });
+
+  test('Department filter works', async () => {
+    const res = await request(app)
+      .get(`/api/grievances?department_id=${department.department_id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.every(g => g.department_id === department.department_id)).toBe(true);
+  });
+});
+
+// =============================================================================
+// ASSIGNMENT
+// =============================================================================
+describe('Assign officer', () => {
+  test('Invalid assignment: officer from wrong department is rejected', async () => {
+    // Create a separate dept and officer
+    const uniqueSuffix = Date.now();
+    const otherDept = await db.Department.create({ name: `Other Dept P2 ${uniqueSuffix}`, sla_days: 7, is_active: true });
+    const bcrypt = require('bcryptjs');
+    const hash = await bcrypt.hash('Test@1234', 10);
+    const wrongOfficer = await db.User.create({
+      name: 'WrongOfficer', email: `wrong${uniqueSuffix}@pgrs-test.dev`, password_hash: hash,
+      role: 'officer', department_id: otherDept.department_id, is_active: true,
+    });
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/assign`)
+      .set('Authorization', `Bearer ${deptHeadToken}`)
+      .send({ officer_id: wrongOfficer.user_id });
+    expect(res.statusCode).toBe(400);
+    // cleanup
+    await wrongOfficer.destroy();
+    await otherDept.destroy();
+  });
+
+  test('Dept head can assign officer to grievance', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/assign`)
+      .set('Authorization', `Bearer ${deptHeadToken}`)
+      .send({ officer_id: officerUser.user_id });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('GrievanceAssignment record is created with unassigned_at = null', async () => {
+    const assignment = await db.GrievanceAssignment.findOne({
+      where: { grievance_id: grievanceId, officer_id: officerUser.user_id, unassigned_at: null },
+    });
+    expect(assignment).not.toBeNull();
+    expect(assignment.assigned_by).toBe(deptHeadUser.user_id);
+  });
+
+  test('Grievance current_status is now ASSIGNED', async () => {
+    const g = await db.Grievance.findByPk(grievanceId);
+    expect(g.current_status).toBe('ASSIGNED');
+  });
+
+  test('Status history has ASSIGNED entry', async () => {
+    const hist = await db.GrievanceStatusHistory.findOne({
+      where: { grievance_id: grievanceId, new_status: 'ASSIGNED' },
+    });
+    expect(hist).not.toBeNull();
+  });
+
+  test('Cannot assign again when already assigned', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/assign`)
+      .set('Authorization', `Bearer ${deptHeadToken}`)
+      .send({ officer_id: officer2User.user_id });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.message).toMatch(/already has an active assignment/i);
+  });
+});
+
+// =============================================================================
+// OFFICER ACCESS AFTER ASSIGNMENT
+// =============================================================================
+describe('Officer access after assignment', () => {
+  test('Assigned officer can now access grievance', async () => {
+    const res = await request(app)
+      .get(`/api/grievances/${grievanceId}`)
+      .set('Authorization', `Bearer ${officerToken}`);
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('Officer appears in list after assignment', async () => {
+    const res = await request(app)
+      .get('/api/grievances')
+      .set('Authorization', `Bearer ${officerToken}`);
+    expect(res.statusCode).toBe(200);
+    const ids = res.body.data.map(g => g.grievance_id);
+    expect(ids).toContain(grievanceId);
+  });
+});
+
+// =============================================================================
+// UPDATE STATUS
+// =============================================================================
+describe('Update status', () => {
+  test('Officer can update ASSIGNED → IN_PROGRESS', async () => {
+    const res = await request(app)
+      .patch(`/api/grievances/${grievanceId}/status`)
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ status: 'IN_PROGRESS', note: 'Started working on it' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('current_status is now IN_PROGRESS', async () => {
+    const g = await db.Grievance.findByPk(grievanceId);
+    expect(g.current_status).toBe('IN_PROGRESS');
+  });
+
+  test('Status history entry created for IN_PROGRESS', async () => {
+    const hist = await db.GrievanceStatusHistory.findOne({
+      where: { grievance_id: grievanceId, new_status: 'IN_PROGRESS' },
+    });
+    expect(hist).not.toBeNull();
+    expect(hist.old_status).toBe('ASSIGNED');
+    expect(hist.note).toBe('Started working on it');
+  });
+
+  test('Invalid status transition is rejected', async () => {
+    // IN_PROGRESS → SUBMITTED is not a valid transition
+    const res = await request(app)
+      .patch(`/api/grievances/${grievanceId}/status`)
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ status: 'UNDER_REVIEW' });
+    // UNDER_REVIEW is not in the allowed values list for the route itself
+    expect([400, 422]).toContain(res.statusCode);
+  });
+
+  test('Citizen cannot update status', async () => {
+    const res = await request(app)
+      .patch(`/api/grievances/${grievanceId}/status`)
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({ status: 'IN_PROGRESS' });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+// =============================================================================
+// ADD COMMENT (REMARK)
+// =============================================================================
+describe('Add comment (remark)', () => {
+  test('Assigned officer can add a remark', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/remarks`)
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ note: 'Investigating root cause' });
+    expect(res.statusCode).toBe(201);
+    expect(res.body.data.content).toBe('Investigating root cause');
+    expect(res.body.data.is_internal).toBe(true);
+  });
+
+  test('Comment is persisted in the Comments table', async () => {
+    const comment = await db.Comment.findOne({
+      where: { grievance_id: grievanceId, user_id: officerUser.user_id },
+    });
+    expect(comment).not.toBeNull();
+    expect(comment.content).toBe('Investigating root cause');
+  });
+
+  test('Empty remark is rejected', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/remarks`)
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ note: '' });
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('Citizen cannot post a remark', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/remarks`)
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({ note: 'Citizen remark' });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+// =============================================================================
+// REASSIGNMENT
+// =============================================================================
+describe('Reassign officer', () => {
+  test('Reassignment requires reason', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/reassign`)
+      .set('Authorization', `Bearer ${deptHeadToken}`)
+      .send({ officer_id: officer2User.user_id }); // missing reason
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('Dept head can reassign to officer2', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/reassign`)
+      .set('Authorization', `Bearer ${deptHeadToken}`)
+      .send({ officer_id: officer2User.user_id, reason: 'Officer on leave' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('Old assignment has unassigned_at set (history preserved)', async () => {
+    const oldAssignment = await db.GrievanceAssignment.findOne({
+      where: { grievance_id: grievanceId, officer_id: officerUser.user_id },
+    });
+    expect(oldAssignment).not.toBeNull();
+    expect(oldAssignment.unassigned_at).not.toBeNull();
+  });
+
+  test('New active assignment is officer2', async () => {
+    const active = await db.GrievanceAssignment.findOne({
+      where: { grievance_id: grievanceId, unassigned_at: null },
+    });
+    expect(active).not.toBeNull();
+    expect(active.officer_id).toBe(officer2User.user_id);
+  });
+
+  test('Old officer (officer1) loses access after reassignment', async () => {
+    const res = await request(app)
+      .get(`/api/grievances/${grievanceId}`)
+      .set('Authorization', `Bearer ${officerToken}`); // officerToken = officer1
+    expect(res.statusCode).toBe(403);
+  });
+
+  test('New officer (officer2) has access after reassignment', async () => {
+    const res = await request(app)
+      .get(`/api/grievances/${grievanceId}`)
+      .set('Authorization', `Bearer ${officer2Token}`);
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('Cannot reassign to same officer', async () => {
+    const res = await request(app)
+      .post(`/api/grievances/${grievanceId}/reassign`)
+      .set('Authorization', `Bearer ${deptHeadToken}`)
+      .send({ officer_id: officer2User.user_id, reason: 'Same officer test' });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.message).toMatch(/same as the current officer/i);
+  });
+
+  test('Status history note for reassignment is created', async () => {
+    const hist = await db.GrievanceStatusHistory.findOne({
+      where: { grievance_id: grievanceId, note: { [db.sequelize.Sequelize.Op.like]: '%Reassigned%' } },
+    });
+    expect(hist).not.toBeNull();
+  });
+
+  test('Reassignment with no active assignment is rejected', async () => {
+    // Create a fresh grievance that was never assigned
+    const res1 = await request(app)
+      .post('/api/grievances')
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({
+        title: 'Unassigned Grievance', description: 'Test', sub_category_id: subCategory.sub_category_id,
+      });
+    expect(res1.statusCode).toBe(201);
+    const unassignedId = res1.body.data.grievance_id;
+
+    const res2 = await request(app)
+      .post(`/api/grievances/${unassignedId}/reassign`)
+      .set('Authorization', `Bearer ${deptHeadToken}`)
+      .send({ officer_id: officer2User.user_id, reason: 'No assignment exists' });
+    expect(res2.statusCode).toBe(400);
+    expect(res2.body.message).toMatch(/No active assignment/i);
+  });
+});
+
+// =============================================================================
+// UNAUTHENTICATED ACCESS
+// =============================================================================
+describe('Unauthorized access', () => {
+  test('No token returns 401', async () => {
+    const res = await request(app).get('/api/grievances');
+    expect(res.statusCode).toBe(401);
+  });
+
+  test('Invalid token returns 401', async () => {
+    const res = await request(app)
+      .get('/api/grievances')
+      .set('Authorization', 'Bearer invalidtoken');
+    expect(res.statusCode).toBe(401);
+  });
+});
