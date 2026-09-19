@@ -36,7 +36,7 @@ app.use('/api/grievances',   require('./routes/grievances'));
 // app.use('/api/attachments',  require('./routes/attachments'));
 // app.use('/api/notifications',require('./routes/notifications'));
 app.use('/api/feedback',     require('./routes/feedback'));
-// app.use('/api/reports',      require('./routes/reports'));
+app.use('/api/reports',      require('./routes/reports'));
 // app.use('/api/audit-logs',   require('./routes/auditLogs'));
 
 // ── Health check ──────────────────────────────────────────────────────────────

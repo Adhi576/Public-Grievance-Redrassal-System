@@ -44,6 +44,7 @@ beforeAll(async () => {
 
   // Disable FK checks so we can delete in any order
   await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+  await db.Report.destroy({ where: {}, truncate: false });
   await db.Feedback.destroy({ where: {}, truncate: false });
   await db.ResolutionVerification.destroy({ where: {}, truncate: false });
   await db.Resolution.destroy({ where: {}, truncate: false });
@@ -1013,6 +1014,81 @@ describe('Citizen feedback', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.data.rating).toBe(4);
     expect(res.body.data.comment).toBe('Great service!');
+  });
+});
+
+// =============================================================================
+// REPORTS AND ANALYTICS
+// =============================================================================
+describe('Reports and Analytics', () => {
+  test('Admin can access summary report', async () => {
+    const res = await request(app)
+      .get('/api/reports/summary')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.total).toBeGreaterThanOrEqual(1);
+    expect(res.body.data.by_department).not.toBeNull();
+  });
+
+  test('Department Head can access summary report', async () => {
+    const res = await request(app)
+      .get('/api/reports/summary')
+      .set('Authorization', `Bearer ${deptHeadToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    // Dept head should not see the by_department breakdown array
+    expect(res.body.data.by_department).toBeNull();
+    expect(res.body.data.total).toBeGreaterThanOrEqual(1);
+  });
+
+  test('Unauthorized users cannot access reports (citizen/officer)', async () => {
+    let res = await request(app)
+      .get('/api/reports/summary')
+      .set('Authorization', `Bearer ${citizenToken}`);
+    expect(res.statusCode).toBe(403);
+
+    res = await request(app)
+      .get('/api/reports/summary')
+      .set('Authorization', `Bearer ${officerToken}`);
+    expect(res.statusCode).toBe(403);
+  });
+
+  test('Report generation is logged in Report table', async () => {
+    const reportCount = await db.Report.count({ where: { generated_by: adminUser.user_id } });
+    expect(reportCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('Date filtering works', async () => {
+    const futureDate = new Date();
+    futureDate.setFullYear(futureDate.getFullYear() + 1);
+    const to = futureDate.toISOString();
+    const from = new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(); // tomorrow
+
+    const res = await request(app)
+      .get(`/api/reports/summary?from=${from}&to=${to}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.total).toBe(0); // Should be 0 since no grievances are in the future
+  });
+
+  test('Status counts and resolution statistics are present', async () => {
+    const res = await request(app)
+      .get('/api/reports/summary')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    const data = res.body.data;
+    expect(data.by_status).toBeDefined();
+    expect(data.resolved).toBeDefined();
+    expect(data.closed).toBeDefined();
+    expect(data.escalated).toBeDefined();
+    expect(data.reopened).toBeDefined();
+    // avg_resolution_hours might be null if closed_at and assigned_at diff is exactly 0 or null,
+    // but the field must be defined.
+    expect(data.avg_resolution_hours).toBeDefined();
   });
 });
 
