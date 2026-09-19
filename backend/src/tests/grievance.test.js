@@ -44,6 +44,7 @@ beforeAll(async () => {
 
   // Disable FK checks so we can delete in any order
   await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+  await db.Feedback.destroy({ where: {}, truncate: false });
   await db.ResolutionVerification.destroy({ where: {}, truncate: false });
   await db.Resolution.destroy({ where: {}, truncate: false });
   await db.Attachment.destroy({ where: {}, truncate: false });
@@ -910,6 +911,108 @@ describe('SLA escalation', () => {
     // Should be approximately 1 day (allow ±1 min tolerance)
     expect(diffDays).toBeGreaterThanOrEqual(0.99);
     expect(diffDays).toBeLessThanOrEqual(1.01);
+  });
+});
+
+// =============================================================================
+// CITIZEN FEEDBACK
+// =============================================================================
+describe('Citizen feedback', () => {
+  test('Feedback before closure is rejected', async () => {
+    // Create a fresh unclosed grievance to test against
+    const res1 = await request(app)
+      .post('/api/grievances')
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({ title: 'Feedback Test', description: 'Test', sub_category_id: subCategory.sub_category_id });
+    expect(res1.statusCode).toBe(201);
+    const openId = res1.body.data.grievance_id;
+
+    const res = await request(app)
+      .post(`/api/feedback/${openId}`)
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({ rating: 4 });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.message).toMatch(/CLOSED/i);
+  });
+
+  test('Invalid rating is rejected (validator)', async () => {
+    const res = await request(app)
+      .post(`/api/feedback/${grievanceId}`)
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({ rating: 6 }); // out of range
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('Unauthorized citizen cannot submit feedback', async () => {
+    const bcrypt = require('bcryptjs');
+    const hash = await bcrypt.hash('Test@1234', 10);
+    const otherCitizen = await db.User.create({
+      name: 'FeedbackOther', email: `fbother${Date.now()}@pgrs-test.dev`,
+      password_hash: hash, role: 'citizen', is_active: true,
+    });
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email: otherCitizen.email, password: 'Test@1234' });
+    const otherToken = loginRes.body.token;
+
+    const res = await request(app)
+      .post(`/api/feedback/${grievanceId}`)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ rating: 3 });
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  test('Officer cannot submit feedback (role guard)', async () => {
+    const res = await request(app)
+      .post(`/api/feedback/${grievanceId}`)
+      .set('Authorization', `Bearer ${officer2Token}`)
+      .send({ rating: 5 });
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  test('Valid feedback is submitted for CLOSED grievance', async () => {
+    // grievanceId is CLOSED from Phase 4 accept test
+    const res = await request(app)
+      .post(`/api/feedback/${grievanceId}`)
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({ rating: 4, comment: 'Great service!' });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.rating).toBe(4);
+    expect(res.body.data.comment).toBe('Great service!');
+    expect(res.body.data.citizen_id).toBe(citizenUser.user_id);
+  });
+
+  test('Feedback is persisted in DB', async () => {
+    const fb = await db.Feedback.findOne({ where: { grievance_id: grievanceId } });
+    expect(fb).not.toBeNull();
+    expect(fb.rating).toBe(4);
+    expect(fb.comment).toBe('Great service!');
+  });
+
+  test('Duplicate feedback is rejected', async () => {
+    const res = await request(app)
+      .post(`/api/feedback/${grievanceId}`)
+      .set('Authorization', `Bearer ${citizenToken}`)
+      .send({ rating: 2, comment: 'Second attempt' });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body.message).toMatch(/already been submitted/i);
+  });
+
+  test('GET feedback returns submitted data', async () => {
+    const res = await request(app)
+      .get(`/api/feedback/${grievanceId}`)
+      .set('Authorization', `Bearer ${citizenToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.rating).toBe(4);
+    expect(res.body.data.comment).toBe('Great service!');
   });
 });
 
