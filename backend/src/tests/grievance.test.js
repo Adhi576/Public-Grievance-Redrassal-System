@@ -49,6 +49,9 @@ beforeAll(async () => {
   await db.Attachment.destroy({ where: {}, truncate: false });
   await db.GrievanceAssignment.destroy({ where: {}, truncate: false });
   await db.GrievanceStatusHistory.destroy({ where: {}, truncate: false });
+  await db.Escalation.destroy({ where: {}, truncate: false });
+  await db.EscalationRule.destroy({ where: {}, truncate: false });
+  await db.Notification.destroy({ where: {}, truncate: false });
   await db.Comment.destroy({ where: {}, truncate: false });
   await db.Grievance.destroy({ where: {}, truncate: false });
   await db.SubCategory.destroy({ where: {}, truncate: false });
@@ -101,6 +104,15 @@ beforeAll(async () => {
   subCategory = await db.SubCategory.create({
     name: 'Pothole P2',
     category_id: category.category_id,
+    is_active: true,
+  });
+
+  // EscalationRule
+  await db.EscalationRule.create({
+    department_id: department.department_id,
+    category_id: category.category_id,
+    priority: null, // applies to all priorities
+    sla_days: 1, // 1 day for testing
     is_active: true,
   });
 
@@ -764,6 +776,140 @@ describe('Verify resolution', () => {
     const g = await db.Grievance.findByPk(grievanceId);
     expect(g.current_status).toBe('CLOSED');
     expect(g.closed_at).not.toBeNull();
+  });
+});
+
+// =============================================================================
+// NOTIFICATIONS
+// =============================================================================
+describe('Notifications', () => {
+  test('Assignment creates notification for officer', async () => {
+    const notif = await db.Notification.findOne({
+      where: {
+        grievance_id: grievanceId,
+        type: 'assignment',
+      },
+    });
+    expect(notif).not.toBeNull();
+    expect(notif.message).toMatch(/assigned/i);
+  });
+
+  test('Reassignment creates notification for new officer', async () => {
+    const notifs = await db.Notification.findAll({
+      where: {
+        grievance_id: grievanceId,
+        type: 'assignment',
+      },
+    });
+    // Should have at least 2 assignment notifications (original + reassignment)
+    expect(notifs.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('Resolution creates notification for citizen', async () => {
+    const notif = await db.Notification.findOne({
+      where: {
+        grievance_id: grievanceId,
+        user_id: citizenUser.user_id,
+        type: 'status_change',
+        message: { [db.sequelize.Sequelize.Op.like]: '%RESOLVED%' },
+      },
+    });
+    expect(notif).not.toBeNull();
+  });
+
+  test('Reopening creates notification for officer', async () => {
+    // When citizen rejects -> status becomes REOPENED -> officer should be notified
+    const notif = await db.Notification.findOne({
+      where: {
+        grievance_id: grievanceId,
+        type: 'status_change',
+        message: { [db.sequelize.Sequelize.Op.like]: '%rejected%' },
+      },
+    });
+    expect(notif).not.toBeNull();
+  });
+});
+
+// =============================================================================
+// SLA ESCALATION
+// =============================================================================
+describe('SLA escalation', () => {
+  const { runSlaCheck } = require('../jobs/slaMonitorJob');
+  let slaGrievanceId;
+
+  beforeAll(async () => {
+    // Create a fresh grievance in IN_PROGRESS with sla_due_date already in the past
+    const pastDue = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+
+    const g = await db.Grievance.create({
+      grn: `SLA-TEST-${Date.now()}`,
+      title: 'SLA Test Grievance',
+      description: 'Test SLA breach',
+      sub_category_id: subCategory.sub_category_id,
+      department_id: department.department_id,
+      citizen_id: citizenUser.user_id,
+      priority: 'medium',
+      current_status: 'IN_PROGRESS',
+      sla_due_date: pastDue,
+    });
+    slaGrievanceId = g.grievance_id;
+  });
+
+  test('SLA monitor escalates overdue grievance to ESCALATED', async () => {
+    const count = await runSlaCheck();
+    expect(count).toBeGreaterThanOrEqual(1);
+
+    const g = await db.Grievance.findByPk(slaGrievanceId);
+    expect(g.current_status).toBe('ESCALATED');
+  });
+
+  test('Escalation record is created', async () => {
+    const esc = await db.Escalation.findOne({
+      where: { grievance_id: slaGrievanceId, escalated_by_system: true },
+    });
+    expect(esc).not.toBeNull();
+    expect(esc.department_head_id).toBe(deptHeadUser.user_id);
+  });
+
+  test('Status history is created for ESCALATED', async () => {
+    const hist = await db.GrievanceStatusHistory.findOne({
+      where: { grievance_id: slaGrievanceId, new_status: 'ESCALATED' },
+    });
+    expect(hist).not.toBeNull();
+    expect(hist.changed_by).toBeNull(); // system action
+  });
+
+  test('Dept head receives escalation notification', async () => {
+    const notif = await db.Notification.findOne({
+      where: {
+        grievance_id: slaGrievanceId,
+        user_id: deptHeadUser.user_id,
+        type: 'escalation',
+      },
+    });
+    expect(notif).not.toBeNull();
+    expect(notif.message).toMatch(/SLA/i);
+  });
+
+  test('Duplicate escalation is prevented', async () => {
+    // Re-run the check; same grievance should NOT be escalated again
+    const countBefore = await db.Escalation.count({ where: { grievance_id: slaGrievanceId } });
+    await runSlaCheck();
+    const countAfter = await db.Escalation.count({ where: { grievance_id: slaGrievanceId } });
+    expect(countAfter).toBe(countBefore);
+  });
+
+  test('EscalationRule SLA days used for sla_due_date on assignment', async () => {
+    // The EscalationRule set sla_days = 1, so sla_due_date should be ~24h from assignedAt
+    // Fetch the main grievance which was assigned earlier
+    const g = await db.Grievance.findByPk(grievanceId);
+    expect(g.sla_due_date).not.toBeNull();
+
+    const diff = new Date(g.sla_due_date) - new Date(g.assigned_at);
+    const diffDays = diff / (1000 * 60 * 60 * 24);
+    // Should be approximately 1 day (allow ±1 min tolerance)
+    expect(diffDays).toBeGreaterThanOrEqual(0.99);
+    expect(diffDays).toBeLessThanOrEqual(1.01);
   });
 });
 

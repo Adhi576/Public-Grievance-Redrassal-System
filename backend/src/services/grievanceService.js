@@ -14,6 +14,7 @@ const {
   Notification,
   Resolution,
   ResolutionVerification,
+  EscalationRule,
 } = require('../models');
 const { generateGRN } = require('../utils/grnGenerator');
 
@@ -263,11 +264,30 @@ class GrievanceService {
 
     const assignedAt = new Date();
 
-    // SLA from department.sla_days
-    const dept = await Department.findByPk(g.department_id);
-    const slaDue = dept && dept.sla_days
-      ? new Date(assignedAt.getTime() + dept.sla_days * 24 * 60 * 60 * 1000)
-      : null;
+    // SLA from EscalationRules
+    const categoryId = g.subCategory?.category?.category_id || null;
+    
+    // Find matching rule (most specific first)
+    const rule = await EscalationRule.findOne({
+      where: {
+        [Op.or]: [
+          { department_id: g.department_id, category_id: categoryId, priority: g.priority },
+          { department_id: g.department_id, category_id: categoryId, priority: null },
+          { department_id: g.department_id, category_id: null, priority: g.priority },
+          { department_id: g.department_id, category_id: null, priority: null },
+          { department_id: null, category_id: null, priority: null } // Global default fallback
+        ],
+        is_active: true
+      },
+      order: [
+        ['category_id', 'DESC'], // Prefer rules with category matched
+        ['priority', 'DESC'],    // Prefer rules with priority matched
+        ['department_id', 'DESC']// Prefer rules with department matched
+      ]
+    });
+
+    const slaDays = rule ? rule.sla_days : 7;
+    const slaDue = new Date(assignedAt.getTime() + slaDays * 24 * 60 * 60 * 1000);
 
     // Create assignment record
     await GrievanceAssignment.create({
