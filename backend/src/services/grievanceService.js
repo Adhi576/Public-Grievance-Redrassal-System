@@ -36,7 +36,8 @@ class GrievanceService {
   // ── Internal helpers ────────────────────────────────────────────────────────
 
   /**
-   * Returns the standard includes used when loading a grievance for display.
+   * Returns the standard includes used when loading a grievance for LIST display.
+   * Lightweight — no history/resolutions to keep list queries fast.
    */
   static _includes() {
     return [
@@ -46,6 +47,30 @@ class GrievanceService {
         include: [{ model: Category, as: 'category' }],
       },
       { model: User, as: 'citizen', attributes: ['user_id', 'name', 'email'] },
+    ];
+  }
+
+  /**
+   * Returns enriched includes for the DETAIL view:
+   * adds statusHistory, resolutions (with verifications), and assignments (with officer).
+   */
+  static _detailIncludes() {
+    return [
+      ...this._includes(),
+      {
+        model: GrievanceStatusHistory, as: 'statusHistory',
+        include: [{ model: User, as: 'changedBy', attributes: ['user_id', 'name'] }],
+        order: [['changed_at', 'DESC']],
+      },
+      {
+        model: Resolution, as: 'resolutions',
+        include: [{ model: ResolutionVerification, as: 'verifications' }],
+        order: [['resolved_at', 'ASC']],
+      },
+      {
+        model: GrievanceAssignment, as: 'assignments',
+        include: [{ model: User, as: 'officer', attributes: ['user_id', 'name', 'email'] }],
+      },
     ];
   }
 
@@ -177,10 +202,17 @@ class GrievanceService {
 
   /**
    * Returns a single grievance with full associations for the requesting user.
-   * Includes the active assignment so callers know who the current officer is.
+   * Uses the enriched _detailIncludes() so the frontend detail view gets
+   * statusHistory, resolutions, assignments, etc.
    */
   static async getGrievance(grievanceId, user) {
-    const g = await this.checkAccess(grievanceId, user);
+    // First check access with the standard includes (enforces IDOR rules)
+    await this.checkAccess(grievanceId, user);
+
+    // Then reload with the richer detail includes
+    const g = await Grievance.findByPk(grievanceId, {
+      include: this._detailIncludes(),
+    });
 
     const activeAssignment = await this._activeAssignment(grievanceId);
     return { grievance: g, activeAssignment };

@@ -1,13 +1,16 @@
 'use strict';
 
-const { Category, Department } = require('../models');
+const { Category, Department, SubCategory } = require('../models');
 
 class CategoryService {
   static async getAll(department_id = null) {
     const where = department_id ? { department_id } : {};
     return Category.findAll({
       where,
-      include: [{ model: Department, as: 'department', attributes: ['name', 'sla_days'] }],
+      include: [
+        { model: Department, as: 'department', attributes: ['name', 'sla_days'] },
+        { model: SubCategory, as: 'subCategories', attributes: ['sub_category_id', 'name'] }
+      ],
       order: [['name', 'ASC']]
     });
   }
