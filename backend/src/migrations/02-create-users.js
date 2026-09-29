@@ -4,14 +4,14 @@
 module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('users', {
-      user_id:       { type: Sequelize.INTEGER.UNSIGNED, primaryKey: true, autoIncrement: true, allowNull: false },
+      user_id:       { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true, allowNull: false },
       name:          { type: Sequelize.STRING(100), allowNull: false },
       email:         { type: Sequelize.STRING(150), allowNull: false, unique: true },
       password_hash: { type: Sequelize.STRING(255), allowNull: false },
       role:          { type: Sequelize.ENUM('citizen','officer','department_head','administrator'), allowNull: false, defaultValue: 'citizen' },
       mobile:        { type: Sequelize.STRING(15), allowNull: true },
       department_id: {
-        type: Sequelize.INTEGER.UNSIGNED, allowNull: true,
+        type: Sequelize.INTEGER, allowNull: true,
         references: { model: 'departments', key: 'department_id' },
         onUpdate: 'CASCADE', onDelete: 'SET NULL',
       },
@@ -24,5 +24,6 @@ module.exports = {
   },
   async down(queryInterface) {
     await queryInterface.dropTable('users');
+    await queryInterface.sequelize.query('DROP TYPE IF EXISTS "enum_users_role";');
   },
 };

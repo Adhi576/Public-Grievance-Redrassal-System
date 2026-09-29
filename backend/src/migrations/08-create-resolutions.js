@@ -4,13 +4,13 @@
 module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('resolutions', {
-      resolution_id:          { type: Sequelize.INTEGER.UNSIGNED, primaryKey: true, autoIncrement: true, allowNull: false },
+      resolution_id:          { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true, allowNull: false },
       grievance_id:           {
-        type: Sequelize.INTEGER.UNSIGNED, allowNull: false,
+        type: Sequelize.INTEGER, allowNull: false,
         references: { model: 'grievances', key: 'grievance_id' }, onUpdate: 'CASCADE', onDelete: 'CASCADE',
       },
       officer_id:              {
-        type: Sequelize.INTEGER.UNSIGNED, allowNull: false,
+        type: Sequelize.INTEGER, allowNull: false,
         references: { model: 'users', key: 'user_id' }, onUpdate: 'CASCADE', onDelete: 'RESTRICT',
       },
       resolution_description: { type: Sequelize.TEXT, allowNull: false },

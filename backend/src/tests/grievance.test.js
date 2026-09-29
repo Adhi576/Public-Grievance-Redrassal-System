@@ -43,7 +43,13 @@ beforeAll(async () => {
   const q = db.sequelize.getQueryInterface();
 
   // Disable FK checks so we can delete in any order
-  await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+  const isMysql = db.sequelize.getDialect() === 'mysql';
+  if (isMysql) {
+    await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+  } else {
+    await db.sequelize.query('SET session_replication_role = replica');
+  }
+
   await db.AuditLog.destroy({ where: {}, truncate: false });
   await db.Report.destroy({ where: {}, truncate: false });
   await db.Feedback.destroy({ where: {}, truncate: false });
@@ -61,7 +67,12 @@ beforeAll(async () => {
   await db.Category.destroy({ where: {}, truncate: false });
   await db.User.destroy({ where: { email: { [db.sequelize.Sequelize.Op.like]: '%@pgrs-test.dev' } } });
   await db.Department.destroy({ where: { name: { [db.sequelize.Sequelize.Op.like]: '%Phase2%' } } });
-  await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+
+  if (isMysql) {
+    await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+  } else {
+    await db.sequelize.query('SET session_replication_role = DEFAULT');
+  }
 
   const bcrypt = require('bcryptjs');
   const hash = await bcrypt.hash('Test@1234', 10);

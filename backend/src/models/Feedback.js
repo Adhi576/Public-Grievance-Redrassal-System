@@ -21,7 +21,7 @@ const Feedback = sequelize.define('Feedback', {
     references: { model: 'users', key: 'user_id' },
   },
   rating: {
-    type: DataTypes.TINYINT.UNSIGNED,
+    type: DataTypes.INTEGER,
     allowNull: false,
     validate: { min: 1, max: 5 },
   },

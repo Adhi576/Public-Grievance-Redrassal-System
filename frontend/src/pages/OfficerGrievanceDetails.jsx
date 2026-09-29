@@ -36,7 +36,7 @@ const OfficerGrievanceDetails = () => {
       setLoading(true);
       const res = await api.get(`/grievances/${id}`);
       if (res.data.success) {
-        setGrievance(res.data.data);
+        setGrievance(res.data.data.grievance || res.data.data);
       }
     } catch (err) {
       setError('Failed to load grievance details.');

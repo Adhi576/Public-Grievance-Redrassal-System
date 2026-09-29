@@ -4,13 +4,13 @@
 module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('escalations', {
-      escalation_id:       { type: Sequelize.INTEGER.UNSIGNED, primaryKey: true, autoIncrement: true, allowNull: false },
+      escalation_id:       { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true, allowNull: false },
       grievance_id:        {
-        type: Sequelize.INTEGER.UNSIGNED, allowNull: false,
+        type: Sequelize.INTEGER, allowNull: false,
         references: { model: 'grievances', key: 'grievance_id' }, onUpdate: 'CASCADE', onDelete: 'CASCADE',
       },
       department_head_id:  {
-        type: Sequelize.INTEGER.UNSIGNED, allowNull: true,
+        type: Sequelize.INTEGER, allowNull: true,
         references: { model: 'users', key: 'user_id' }, onUpdate: 'CASCADE', onDelete: 'SET NULL',
       },
       escalated_by_system: { type: Sequelize.BOOLEAN, allowNull: false, defaultValue: true },

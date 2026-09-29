@@ -6,20 +6,20 @@ const STATUSES = ['SUBMITTED','UNDER_REVIEW','ASSIGNED','IN_PROGRESS','ESCALATED
 module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('grievances', {
-      grievance_id:  { type: Sequelize.INTEGER.UNSIGNED, primaryKey: true, autoIncrement: true, allowNull: false },
+      grievance_id:  { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true, allowNull: false },
       grn:           { type: Sequelize.STRING(30), allowNull: false, unique: true },
       title:         { type: Sequelize.STRING(255), allowNull: false },
       description:   { type: Sequelize.TEXT, allowNull: false },
       sub_category_id: {
-        type: Sequelize.INTEGER.UNSIGNED, allowNull: false,
+        type: Sequelize.INTEGER, allowNull: false,
         references: { model: 'sub_categories', key: 'sub_category_id' }, onUpdate: 'CASCADE', onDelete: 'RESTRICT',
       },
       department_id: {
-        type: Sequelize.INTEGER.UNSIGNED, allowNull: false,
+        type: Sequelize.INTEGER, allowNull: false,
         references: { model: 'departments', key: 'department_id' }, onUpdate: 'CASCADE', onDelete: 'RESTRICT',
       },
       citizen_id:    {
-        type: Sequelize.INTEGER.UNSIGNED, allowNull: false,
+        type: Sequelize.INTEGER, allowNull: false,
         references: { model: 'users', key: 'user_id' }, onUpdate: 'CASCADE', onDelete: 'RESTRICT',
       },
       location:      { type: Sequelize.STRING(255), allowNull: true },
@@ -39,5 +39,7 @@ module.exports = {
   },
   async down(queryInterface) {
     await queryInterface.dropTable('grievances');
+    await queryInterface.sequelize.query('DROP TYPE IF EXISTS "enum_grievances_current_status";');
+    await queryInterface.sequelize.query('DROP TYPE IF EXISTS "enum_grievances_priority";');
   },
 };

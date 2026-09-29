@@ -80,8 +80,9 @@ const GrievanceDetails = () => {
       if (!latestResolution) throw new Error("No resolution found to verify.");
 
       const payload = {
-        action: verifyAction,
-        reason: verifyAction === 'reject' ? rejectReason : undefined
+        resolution_id: latestResolution.resolution_id,
+        decision: verifyAction === 'accept' ? 'accepted' : 'rejected',
+        rejection_reason: verifyAction === 'reject' ? rejectReason : undefined
       };
       
       const res = await api.post(`/grievances/${id}/verify`, payload);
@@ -175,12 +176,25 @@ const GrievanceDetails = () => {
                 </div>
               </div>
               
-              <div>
+              <div className="mb-4">
                 <p className="text-sm text-muted mb-1">Description</p>
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-md whitespace-pre-wrap">
                   {grievance.description}
                 </div>
               </div>
+
+              {grievance.attachments && grievance.attachments.length > 0 && (
+                <div>
+                  <p className="text-sm text-muted mb-1">Attachments</p>
+                  <div className="space-y-1">
+                    {grievance.attachments.map(att => (
+                      <div key={att.attachment_id} className="text-sm text-primary">
+                        📎 {att.file_name} ({Math.round(att.file_size / 1024)} KB)
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

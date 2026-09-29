@@ -65,7 +65,7 @@ class ReportService {
           [fn('COUNT', col('Grievance.grievance_id')), 'count'],
         ],
         include: [{ model: Department, as: 'department', attributes: ['name'] }],
-        group: ['department_id', 'department.department_id'],
+        group: ['Grievance.department_id', 'department.department_id', 'department.name'],
         raw: true,
         nest: true,
       });
@@ -95,6 +95,11 @@ class ReportService {
     const escalated = await Grievance.count({ where: { ...where, current_status: 'ESCALATED' } });
 
     // 6. Average resolution time (from assigned_at to closed_at, only CLOSED)
+    const dialect = sequelize.getDialect();
+    const diffExpression = dialect === 'postgres'
+      ? 'EXTRACT(EPOCH FROM (closed_at - assigned_at)) / 3600'
+      : 'TIMESTAMPDIFF(HOUR, assigned_at, closed_at)';
+
     const avgResolutionResult = await Grievance.findOne({
       where: {
         ...where,
@@ -104,7 +109,7 @@ class ReportService {
       },
       attributes: [
         [
-          fn('AVG', literal('TIMESTAMPDIFF(HOUR, assigned_at, closed_at)')),
+          fn('AVG', literal(diffExpression)),
           'avg_hours',
         ],
       ],

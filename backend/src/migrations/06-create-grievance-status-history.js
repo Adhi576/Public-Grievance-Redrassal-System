@@ -4,13 +4,13 @@
 module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('grievance_status_history', {
-      history_id:   { type: Sequelize.INTEGER.UNSIGNED, primaryKey: true, autoIncrement: true, allowNull: false },
+      history_id:   { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true, allowNull: false },
       grievance_id: {
-        type: Sequelize.INTEGER.UNSIGNED, allowNull: false,
+        type: Sequelize.INTEGER, allowNull: false,
         references: { model: 'grievances', key: 'grievance_id' }, onUpdate: 'CASCADE', onDelete: 'CASCADE',
       },
       changed_by:   {
-        type: Sequelize.INTEGER.UNSIGNED, allowNull: true,
+        type: Sequelize.INTEGER, allowNull: true,
         references: { model: 'users', key: 'user_id' }, onUpdate: 'CASCADE', onDelete: 'SET NULL',
       },
       old_status:   { type: Sequelize.STRING(50), allowNull: true },
