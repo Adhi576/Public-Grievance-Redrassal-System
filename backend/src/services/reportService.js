@@ -119,6 +119,34 @@ class ReportService {
       ? parseFloat(parseFloat(avgResolutionResult.avg_hours).toFixed(2))
       : null;
 
+    // 7. Officer workload & performance if department is scoped
+    let officerStats = null;
+    const deptId = user.role === 'department_head' ? user.department_id : (filters.department_id ? parseInt(filters.department_id, 10) : null);
+    if (deptId) {
+      const { User, GrievanceAssignment } = require('../models');
+      const officers = await User.findAll({
+        where: { department_id: deptId, role: 'officer' },
+        attributes: ['user_id', 'name', 'email', 'is_active'],
+      });
+
+      officerStats = await Promise.all(officers.map(async (off) => {
+        const activeCount = await GrievanceAssignment.count({
+          where: { officer_id: off.user_id, unassigned_at: null }
+        });
+        const totalAssigned = await GrievanceAssignment.count({
+          where: { officer_id: off.user_id }
+        });
+        return {
+          user_id: off.user_id,
+          name: off.name,
+          email: off.email,
+          is_active: off.is_active,
+          active_workload: activeCount,
+          total_assigned: totalAssigned
+        };
+      }));
+    }
+
     // Persist report log
     const reportParams = { filters, generated_at: new Date().toISOString() };
     await Report.create({
@@ -137,6 +165,7 @@ class ReportService {
       reopened,
       escalated,
       avg_resolution_hours: avgResolutionHours,
+      officer_stats: officerStats,
       applied_filters: filters,
     };
   }

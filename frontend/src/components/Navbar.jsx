@@ -68,7 +68,19 @@ const Navbar = () => {
             <>
               <Link to="/head/dashboard" className="nav-link flex items-center gap-1">
                 <Home size={16} />
-                Head Dashboard
+                Dashboard
+              </Link>
+              <Link to="/head/grievances" className="nav-link flex items-center gap-1">
+                <FileText size={16} />
+                Complaints
+              </Link>
+              <Link to="/head/officers" className="nav-link flex items-center gap-1">
+                <UserCheck size={16} />
+                Officers
+              </Link>
+              <Link to="/head/reports" className="nav-link flex items-center gap-1">
+                <FileBarChart size={16} />
+                Reports
               </Link>
             </>
           )}

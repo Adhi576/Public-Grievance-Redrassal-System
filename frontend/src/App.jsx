@@ -17,8 +17,12 @@ import OfficerDashboard from './pages/OfficerDashboard';
 import OfficerGrievances from './pages/OfficerGrievances';
 import OfficerGrievanceDetails from './pages/OfficerGrievanceDetails';
 
-// Department Head Pages
+// Department Head Pages (UC-09 to UC-16)
 import HeadDashboard from './pages/HeadDashboard';
+import HeadGrievances from './pages/HeadGrievances';
+import HeadGrievanceDetails from './pages/HeadGrievanceDetails';
+import HeadOfficers from './pages/HeadOfficers';
+import HeadReports from './pages/HeadReports';
 
 // Admin Pages
 import AdminDashboard from './pages/AdminDashboard';
@@ -121,12 +125,48 @@ function App() {
                 } 
               />
 
-              {/* Department Head Routes */}
+              {/* Department Head Routes (UC-09 to UC-16) */}
               <Route 
                 path="/head/dashboard" 
                 element={
                   <ProtectedRoute allowedRoles={['department_head']}>
                     <HeadDashboard />
+                  </ProtectedRoute>
+                } 
+              />
+
+              <Route 
+                path="/head/grievances" 
+                element={
+                  <ProtectedRoute allowedRoles={['department_head']}>
+                    <HeadGrievances />
+                  </ProtectedRoute>
+                } 
+              />
+
+              <Route 
+                path="/head/grievances/:id" 
+                element={
+                  <ProtectedRoute allowedRoles={['department_head']}>
+                    <HeadGrievanceDetails />
+                  </ProtectedRoute>
+                } 
+              />
+
+              <Route 
+                path="/head/officers" 
+                element={
+                  <ProtectedRoute allowedRoles={['department_head']}>
+                    <HeadOfficers />
+                  </ProtectedRoute>
+                } 
+              />
+
+              <Route 
+                path="/head/reports" 
+                element={
+                  <ProtectedRoute allowedRoles={['department_head']}>
+                    <HeadReports />
                   </ProtectedRoute>
                 } 
               />

@@ -131,3 +131,23 @@ exports.verify = async (req, res, next) => {
     res.json({ success: true, message: `Resolution ${decision}`, data: { verification } });
   } catch (err) { next(err); }
 };
+
+// ── Approve/Reject Closure (Department Head UC-15) ────────────────────────────
+exports.approveClosure = async (req, res, next) => {
+  try {
+    const { decision, remarks } = req.body;
+    const grievance = await GrievanceService.approveClosure(
+      req.params.id,
+      decision,
+      remarks,
+      req.user,
+    );
+    await log(req.user.user_id, 'CLOSURE_REVIEW', 'grievance', grievance.grievance_id,
+      { decision, remarks }, req.ip);
+    res.json({
+      success: true,
+      message: decision === 'approved' ? 'Closure approved and grievance closed.' : 'Resolution rejected and returned to officer.',
+      data: { grievance_id: grievance.grievance_id, status: grievance.current_status },
+    });
+  } catch (err) { next(err); }
+};

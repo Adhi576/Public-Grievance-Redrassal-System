@@ -23,13 +23,13 @@ const { generateGRN } = require('../utils/grnGenerator');
 // System drives escalation
 // Dept heads drive: SUBMITTED → UNDER_REVIEW (manual review step)
 const VALID_TRANSITIONS = {
-  SUBMITTED:                    ['UNDER_REVIEW'],
+  SUBMITTED:                    ['UNDER_REVIEW', 'ASSIGNED'],
   UNDER_REVIEW:                 ['ASSIGNED'],     // handled by assignOfficer
   ASSIGNED:                     ['IN_PROGRESS'],
-  IN_PROGRESS:                  ['RESOLVED'],     // handled by resolution flow
-  RESOLVED:                     ['CLOSED', 'REOPENED'], // handled by citizen verification
-  ESCALATED:                    ['IN_PROGRESS'],
-  REOPENED:                     ['IN_PROGRESS'],
+  IN_PROGRESS:                  ['RESOLVED', 'ESCALATED'],     // handled by resolution flow / SLA
+  RESOLVED:                     ['CLOSED', 'REOPENED', 'IN_PROGRESS'], // citizen verification or dept head closure review
+  ESCALATED:                    ['IN_PROGRESS', 'RESOLVED', 'ASSIGNED'],
+  REOPENED:                     ['IN_PROGRESS', 'ASSIGNED'],
 };
 
 class GrievanceService {
@@ -659,6 +659,86 @@ class GrievanceService {
     }
 
     return { grievance: g, verification };
+  }
+
+  // ── Department Head Closure Approval (UC-15) ────────────────────────────────
+  /**
+   * Department Head reviews and approves or rejects the resolution submitted by an officer.
+   * Approve -> CLOSED
+   * Reject  -> returns grievance to IN_PROGRESS with remarks
+   */
+  static async approveClosure(grievanceId, decision, remarks, headUser) {
+    const g = await this.checkAccess(grievanceId, headUser);
+
+    if (g.current_status !== 'RESOLVED') {
+      throw Object.assign(
+        new Error(`Cannot review closure: grievance is in state ${g.current_status}. Must be RESOLVED.`),
+        { status: 400 },
+      );
+    }
+
+    if (decision === 'rejected' && (!remarks || !remarks.trim())) {
+      throw Object.assign(
+        new Error('Remarks are required when rejecting a resolution during closure review.'),
+        { status: 400 },
+      );
+    }
+
+    const oldStatus = g.current_status;
+    const newStatus = decision === 'approved' ? 'CLOSED' : 'IN_PROGRESS';
+    const now = new Date();
+
+    await g.update({
+      current_status: newStatus,
+      closed_at: decision === 'approved' ? now : null,
+    });
+
+    const note = decision === 'approved'
+      ? (remarks || 'Resolution approved by Department Head. Grievance closed.')
+      : `Resolution rejected by Department Head. Returned to officer. Remarks: ${remarks}`;
+
+    await GrievanceStatusHistory.create({
+      grievance_id: g.grievance_id,
+      changed_by:   headUser.user_id,
+      old_status:   oldStatus,
+      new_status:   newStatus,
+      note,
+    });
+
+    // Record internal comment for audit trail
+    if (remarks) {
+      await Comment.create({
+        grievance_id: g.grievance_id,
+        user_id:      headUser.user_id,
+        content:      decision === 'approved' ? `Closure Approved: ${remarks}` : `Closure Review Rejected: ${remarks}`,
+        is_internal:  true,
+      });
+    }
+
+    // Notify assigned officer
+    const activeAssignment = await this._activeAssignment(grievanceId);
+    if (activeAssignment) {
+      Notification.create({
+        user_id:      activeAssignment.officer_id,
+        message:      decision === 'approved'
+          ? `Resolution for grievance ${g.grn} has been APPROVED by Department Head.`
+          : `Resolution for grievance ${g.grn} was REJECTED by Department Head: ${remarks}`,
+        type:         'status_change',
+        grievance_id: g.grievance_id,
+      }).catch(() => {});
+    }
+
+    // Notify citizen
+    Notification.create({
+      user_id:      g.citizen_id,
+      message:      decision === 'approved'
+        ? `Your grievance ${g.grn} has been verified and CLOSED by the Department.`
+        : `Your grievance ${g.grn} is undergoing further action by the Department.`,
+      type:         'status_change',
+      grievance_id: g.grievance_id,
+    }).catch(() => {});
+
+    return g;
   }
 }
 

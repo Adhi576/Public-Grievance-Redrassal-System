@@ -125,4 +125,16 @@ router.post('/:id/verify',
   gc.verify,
 );
 
+// ── Approve Closure / Review Resolution (UC-15) ──────────────────────────────
+// POST /api/grievances/:id/approve-closure (dept head or admin)
+router.post('/:id/approve-closure',
+  requireRole('department_head', 'administrator'),
+  [
+    body('decision').isIn(['approved', 'rejected']).withMessage('Decision must be approved or rejected'),
+    body('remarks').optional().isString().trim(),
+    validate,
+  ],
+  gc.approveClosure,
+);
+
 module.exports = router;

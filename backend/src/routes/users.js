@@ -12,11 +12,12 @@ const validate = (req, res, next) => {
   next();
 };
 
-// All user management routes require 'administrator' role
-router.use(verifyToken, requireRole('administrator'));
+// GET routes accessible by administrator and department_head (department_head auto-scoped)
+router.get('/', verifyToken, requireRole('administrator', 'department_head'), userController.getAll);
+router.get('/:id', verifyToken, requireRole('administrator', 'department_head'), userController.getById);
 
-router.get('/', userController.getAll);
-router.get('/:id', userController.getById);
+// Mutation routes require 'administrator' role
+router.use(verifyToken, requireRole('administrator'));
 
 router.post('/', [
   body('name').notEmpty().trim().escape(),

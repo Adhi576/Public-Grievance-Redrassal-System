@@ -6,8 +6,12 @@ const { log } = require('../services/auditService');
 exports.getAll = async (req, res, next) => {
   try {
     const filters = {};
+    if (req.user.role === 'department_head') {
+      filters.department_id = req.user.department_id;
+    } else if (req.query.department_id) {
+      filters.department_id = req.query.department_id;
+    }
     if (req.query.role) filters.role = req.query.role;
-    if (req.query.department_id) filters.department_id = req.query.department_id;
     
     const users = await UserService.getAllUsers(filters);
     res.json({ success: true, data: users });
