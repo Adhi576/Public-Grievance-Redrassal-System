@@ -1,7 +1,8 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import Alert from '../components/Alert';
+import { getRoleHome } from '../components/ProtectedRoute';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -9,8 +10,14 @@ const Login = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
-  const { login } = useContext(AuthContext);
+  const { user, login } = useContext(AuthContext);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user) {
+      navigate(getRoleHome(user.role), { replace: true });
+    }
+  }, [user, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -18,18 +25,8 @@ const Login = () => {
     setLoading(true);
     
     try {
-      const user = await login(email, password);
-      if (user.role === 'citizen') {
-        navigate('/dashboard');
-      } else if (user.role === 'officer') {
-        navigate('/officer/dashboard');
-      } else if (user.role === 'department_head') {
-        navigate('/head/dashboard');
-      } else if (user.role === 'administrator') {
-        navigate('/admin/dashboard');
-      } else {
-        setError('Unknown role.');
-      }
+      const loggedUser = await login(email, password);
+      navigate(getRoleHome(loggedUser.role));
     } catch (err) {
       setError(err.message || 'Failed to login. Please check your credentials.');
     } finally {
@@ -41,7 +38,7 @@ const Login = () => {
     <div className="flex items-center justify-center min-h-screen">
       <div className="card" style={{ width: '100%', maxWidth: '400px' }}>
         <div className="card-header text-center">
-          <h2 className="text-2xl">Citizen Portal Login</h2>
+          <h2 className="text-2xl">Portal Login</h2>
           <p className="text-muted mt-1 text-sm">Public Grievance Redressal System</p>
         </div>
         <div className="card-body">

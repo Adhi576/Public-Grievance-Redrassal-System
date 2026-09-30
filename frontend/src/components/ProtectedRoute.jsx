@@ -2,6 +2,20 @@ import React, { useContext } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 
+export const getRoleHome = (role) => {
+  switch (role) {
+    case 'officer':
+      return '/officer/dashboard';
+    case 'department_head':
+      return '/head/dashboard';
+    case 'administrator':
+      return '/admin/dashboard';
+    case 'citizen':
+    default:
+      return '/dashboard';
+  }
+};
+
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useContext(AuthContext);
 
@@ -18,7 +32,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />; // or unauthorized page
+    return <Navigate to={getRoleHome(user.role)} replace />;
   }
 
   return children;

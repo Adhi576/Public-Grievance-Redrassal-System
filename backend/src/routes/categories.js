@@ -15,7 +15,7 @@ const validate = (req, res, next) => {
 // GET accessible by all authenticated users
 router.get('/', verifyToken, categoryController.getAll);
 
-// POST/PUT require administrator
+// Admin-only mutation routes
 router.use(verifyToken, requireRole('administrator'));
 
 router.post('/', [
@@ -32,5 +32,29 @@ router.put('/:id', [
   body('is_active').optional().isBoolean(),
   validate
 ], categoryController.update);
+
+router.patch('/:id/status', [
+  body('is_active').isBoolean(),
+  validate
+], categoryController.updateStatus);
+
+// Subcategory management routes
+router.post('/:id/subcategories', [
+  body('name').notEmpty().trim(),
+  body('description').optional().trim(),
+  validate
+], categoryController.createSubCategory);
+
+router.put('/subcategories/:subId', [
+  body('name').optional().notEmpty().trim(),
+  body('description').optional().trim(),
+  body('is_active').optional().isBoolean(),
+  validate
+], categoryController.updateSubCategory);
+
+router.patch('/subcategories/:subId/status', [
+  body('is_active').isBoolean(),
+  validate
+], categoryController.updateSubCategoryStatus);
 
 module.exports = router;

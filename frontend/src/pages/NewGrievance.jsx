@@ -45,11 +45,11 @@ const NewGrievance = () => {
 
   // When a department is selected, filter categories for that department
   // The system uses sub_category_id directly on the Grievance, but we need to select Category -> SubCategory
-  const availableCategories = categories.filter(c => c.department_id === parseInt(formData.department_id));
+  const availableCategories = categories.filter(c => c.department_id === parseInt(formData.department_id) && c.is_active !== false);
 
-  // When a category is selected, extract its sub_categories
+  // When a category is selected, extract its active sub_categories
   const selectedCategoryObj = categories.find(c => c.category_id === parseInt(formData.category_id));
-  const availableSubCategories = selectedCategoryObj ? selectedCategoryObj.subCategories || [] : [];
+  const availableSubCategories = (selectedCategoryObj ? selectedCategoryObj.subCategories || [] : []).filter(sc => sc.is_active !== false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
