@@ -79,9 +79,9 @@ const Register = () => {
                 value={formData.password}
                 onChange={handleChange}
                 required 
-                minLength="6"
+                minLength="8"
               />
-              <span className="text-xs text-muted mt-1">Must be at least 6 characters.</span>
+              <span className="text-xs text-muted mt-1">Must be at least 8 characters.</span>
             </div>
             
             <button 

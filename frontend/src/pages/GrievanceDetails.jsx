@@ -217,17 +217,17 @@ const GrievanceDetails = () => {
                     {/* Verification Status */}
                     {res.verifications && res.verifications.length > 0 && (
                       <div className="mt-4 pt-4 border-t border-slate-200">
-                        <p className="text-sm font-medium mb-2">Citizen Feedback for this resolution:</p>
+                        <p className="text-sm font-medium mb-2">Citizen Verification for this resolution:</p>
                         {res.verifications.map(v => (
                           <div key={v.verification_id} className="flex gap-2 items-start mb-2">
-                            {v.status === 'ACCEPTED' ? (
+                            {v.decision === 'accepted' ? (
                               <CheckCircle size={16} className="text-green-600 mt-1" />
                             ) : (
                               <XCircle size={16} className="text-red-600 mt-1" />
                             )}
                             <div>
-                              <p className="text-sm"><span className="font-medium">{v.status}</span> on {fmtDate(v.created_at)}</p>
-                              {v.reason && <p className="text-sm text-muted mt-1">Reason: {v.reason}</p>}
+                              <p className="text-sm"><span className="font-medium uppercase">{v.decision}</span> on {fmtDate(v.verified_at || v.created_at)}</p>
+                              {v.rejection_reason && <p className="text-sm text-muted mt-1">Reason: {v.rejection_reason}</p>}
                             </div>
                           </div>
                         ))}
@@ -370,13 +370,13 @@ const GrievanceDetails = () => {
                     <div className={`timeline-dot ${idx === 0 ? 'active' : ''}`}></div>
                     <div className="timeline-content">
                       <div className="flex justify-between items-start mb-1">
-                        <Badge text={history.status} />
+                        <Badge text={history.new_status || history.status} />
                         <span className="text-xs text-muted flex items-center gap-1">
                           <Clock size={12} />
                           {fmtDate(history.changed_at)}
                         </span>
                       </div>
-                      {history.remarks && <p className="text-sm mt-2 italic text-muted">"{history.remarks}"</p>}
+                      {(history.note || history.remarks) && <p className="text-sm mt-2 italic text-muted">"{history.note || history.remarks}"</p>}
                     </div>
                   </div>
                 ))}

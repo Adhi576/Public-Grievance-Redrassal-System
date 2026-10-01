@@ -16,6 +16,7 @@ const NewGrievance = () => {
   const [categories, setCategories] = useState([]);
   const [subCategories, setSubCategories] = useState([]);
   
+  const [attachments, setAttachments] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -44,7 +45,6 @@ const NewGrievance = () => {
   };
 
   // When a department is selected, filter categories for that department
-  // The system uses sub_category_id directly on the Grievance, but we need to select Category -> SubCategory
   const availableCategories = categories.filter(c => c.department_id === parseInt(formData.department_id) && c.is_active !== false);
 
   // When a category is selected, extract its active sub_categories
@@ -76,17 +76,24 @@ const NewGrievance = () => {
     }
 
     try {
-      // API expects: title, description, sub_category_id, priority, location
-      // Department is inferred or sent as required by backend (wait, backend expects sub_category_id, it infers dept via sub_cat -> cat -> dept, or requires it directly?)
-      // Let's send what we have.
-      const payload = {
-        title: formData.title,
-        description: formData.description,
-        sub_category_id: parseInt(formData.sub_category_id),
-        priority: formData.priority,
-        location: formData.location
-      };
-      const response = await api.post('/grievances', payload);
+      const formPayload = new FormData();
+      formPayload.append('title', formData.title);
+      formPayload.append('description', formData.description);
+      formPayload.append('sub_category_id', formData.sub_category_id);
+      formPayload.append('priority', formData.priority);
+      if (formData.location) {
+        formPayload.append('location', formData.location);
+      }
+
+      if (attachments) {
+        for (let i = 0; i < Math.min(attachments.length, 3); i++) {
+          formPayload.append('attachments', attachments[i]);
+        }
+      }
+
+      const response = await api.post('/grievances', formPayload, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
       
       if (response.data.success) {
         navigate(`/grievances/${response.data.data.grievance_id}`);
@@ -211,6 +218,17 @@ const NewGrievance = () => {
                   required 
                   placeholder="Please provide detailed information about your grievance..."
                 ></textarea>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Attachments (Optional, max 3 files - JPG, PNG, PDF)</label>
+                <input 
+                  type="file" 
+                  className="form-control" 
+                  multiple 
+                  accept="image/jpeg,image/png,application/pdf"
+                  onChange={(e) => setAttachments(e.target.files)} 
+                />
               </div>
 
               <div className="flex justify-between items-center mt-8">

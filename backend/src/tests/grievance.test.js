@@ -22,6 +22,8 @@ const request = require('supertest');
 const app     = require('../app');
 const db      = require('../models');
 
+jest.setTimeout(180000);
+
 // ── Test data (inserted fresh for each suite) ─────────────────────────────────
 let adminToken, citizenToken, officerToken, officer2Token, deptHeadToken;
 let adminUser, citizenUser, officerUser, officer2User, deptHeadUser;

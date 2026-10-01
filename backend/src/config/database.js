@@ -32,6 +32,7 @@ if (dialect === 'postgres' && isSslRequired) {
     require: true,
     rejectUnauthorized: false,
   };
+  dialectOptions.keepAlive = true;
 }
 
 let sequelize;
@@ -43,8 +44,8 @@ if (databaseUrl) {
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
     pool: {
       max: 10,
-      min: 0,
-      acquire: 30000,
+      min: 2,
+      acquire: 60000,
       idle: 10000,
     },
   });
